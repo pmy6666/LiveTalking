@@ -1,0 +1,31 @@
+python infer_flash.py \
+    --image_path "/path/to/your/directory/input.jpg" \
+    --audio_path "/path/to/your/directory/audio.wav" \
+    --prompt "A person is speaking." \
+    --num_inference_steps 8 \
+    --config_path "config/config.yaml" \
+    --model_name "/path/to/your/directory/Wan2.1-Fun-V1.1-1.3B-InP" \
+    --ckpt_idx 50000 \
+    --transformer_path "/path/to/your/directory/flash/transformer/diffusion_pytorch_model.safetensors" \
+    --save_path "outputs" \
+    --wav2vec_model_dir "/path/to/your/directory/flash/chinese-wav2vec2-base" \
+    --sampler_name "Flow_Unipc" \
+    --video_length 81 \
+    --guidance_scale 6.0 \
+    --audio_guidance_scale 3.0 \
+    --audio_scale 1.0 \
+    --neg_scale 1.0 \
+    --neg_steps 0 \
+    --seed 43 \
+    --enable_teacache \
+    --teacache_threshold 0.1 \
+    --num_skip_start_steps 5 \
+    --riflex_k 6 \
+    --ulysses_degree 1 \
+    --ring_degree 1 \
+    --weight_dtype "bfloat16" \
+    --sample_size 768 768 \
+    --fps 25 \
+    --add_prompt "" \
+    --negative_prompt "" \
+    --shift 5.0

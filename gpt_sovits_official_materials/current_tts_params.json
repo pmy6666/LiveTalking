@@ -1,0 +1,14 @@
+{
+  "speed_factor": 1.08,
+  "fragment_interval": 0.1,
+  "streaming_mode": 0,
+  "media_type": "wav",
+  "text_lang": "zh",
+  "prompt_lang": "zh",
+  "split_method": "cut5",
+  "notes": {
+    "speed_factor": "Values above 1.0 make speech faster. Current value is about 8% faster than default.",
+    "fragment_interval": "Silence interval between generated fragments, in seconds. Current value keeps pauses short.",
+    "streaming_mode": "0 means non-streaming generation, preferred for quality tests."
+  }
+}

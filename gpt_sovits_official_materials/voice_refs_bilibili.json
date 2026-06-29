@@ -1,0 +1,38 @@
+[
+  {
+    "id": "DongQing_6s",
+    "ref_audio": "bilibili_downloads/DongQing_6s.wav",
+    "prompt_text": "那种快乐常常像一场梦，电影陪伴我们长大",
+    "prompt_lang": "zh"
+  },
+  {
+    "id": "DongQing_6s_enhanced",
+    "ref_audio": "bilibili_downloads/DongQing_6s_enhanced.wav",
+    "prompt_text": "那种快乐常常像一场梦，电影陪伴我们长大",
+    "prompt_lang": "zh"
+  },
+  {
+    "id": "Female",
+    "ref_audio": "bilibili_downloads/Female.wav",
+    "prompt_text": "我也没有忘记一个孩子，一个漂亮而不幸的小姑娘",
+    "prompt_lang": "zh"
+  },
+  {
+    "id": "Female_enhanced",
+    "ref_audio": "bilibili_downloads/Female_enhanced.wav",
+    "prompt_text": "我也没有忘记一个孩子，一个漂亮而不幸的小姑娘",
+    "prompt_lang": "zh"
+  },
+  {
+    "id": "SaBeining",
+    "ref_audio": "bilibili_downloads/SaBeining.wav",
+    "prompt_text": "三位航天员你们好，我是朗读者，撒贝宁",
+    "prompt_lang": "zh"
+  },
+  {
+    "id": "SaBeining_enhanced",
+    "ref_audio": "bilibili_downloads/SaBeining_enhanced.wav",
+    "prompt_text": "三位航天员你们好，我是朗读者，撒贝宁",
+    "prompt_lang": "zh"
+  }
+]

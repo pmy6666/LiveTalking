@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSVEP 闪烁可视器</title>
+    <style>
+        :root {
+            --bg: #f4f7fb;
+            --panel: #ffffff;
+            --line: #d7deea;
+            --text: #142033;
+            --muted: #607086;
+            --accent: #0f6cbd;
+            --accent-strong: #0b4f8a;
+            --danger: #bf1d1d;
+            --stage-bg: #101820;
+            --shape-color: #ffffff;
+            --shape-off: #151f2a;
+            --shape-size: 180px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--text);
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+            background: var(--bg);
+        }
+
+        .app {
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: 320px minmax(0, 1fr);
+        }
+
+        .controls {
+            background: var(--panel);
+            border-right: 1px solid var(--line);
+            padding: 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .title h1 {
+            margin: 0 0 8px;
+            font-size: 1.35rem;
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+
+        .title p,
+        .field small,
+        .readout {
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .title p {
+            margin: 0;
+            font-size: 0.92rem;
+        }
+
+        .field {
+            display: grid;
+            gap: 8px;
+        }
+
+        .field label {
+            font-weight: 700;
+            font-size: 0.94rem;
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: 1fr 88px;
+            gap: 10px;
+            align-items: center;
+        }
+
+        input,
+        select,
+        button {
+            font: inherit;
+        }
+
+        input[type="range"] {
+            width: 100%;
+        }
+
+        input[type="number"],
+        input[type="color"],
+        select {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            color: var(--text);
+            min-height: 42px;
+            padding: 8px 10px;
+        }
+
+        input[type="color"] {
+            padding: 4px;
+        }
+
+        .button-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        button {
+            border: 0;
+            border-radius: 8px;
+            min-height: 44px;
+            padding: 10px 12px;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
+        .primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .primary:hover {
+            background: var(--accent-strong);
+        }
+
+        .secondary {
+            background: #edf2f8;
+            color: var(--text);
+            border: 1px solid var(--line);
+        }
+
+        .secondary:hover {
+            background: #e3ebf5;
+        }
+
+        .danger {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        .stage-wrap {
+            min-width: 0;
+            padding: 22px;
+            display: grid;
+            place-items: center;
+        }
+
+        .stage {
+            width: min(100%, 980px);
+            height: min(72vh, 680px);
+            min-height: 420px;
+            border-radius: 8px;
+            background: var(--stage-bg);
+            border: 1px solid #263544;
+            position: relative;
+            overflow: hidden;
+            display: grid;
+            place-items: center;
+        }
+
+        .stage::before,
+        .stage::after {
+            content: "";
+            position: absolute;
+            pointer-events: none;
+        }
+
+        .stage::before {
+            left: 50%;
+            top: 0;
+            width: 1px;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.11);
+        }
+
+        .stage::after {
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.11);
+        }
+
+        .center-zone {
+            width: clamp(220px, 46vmin, 420px);
+            aspect-ratio: 1;
+            border: 1px dashed rgba(255, 255, 255, 0.28);
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            position: relative;
+        }
+
+        .center-zone.selected {
+            border-color: #f59e0b;
+            box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.18);
+        }
+
+        .shape {
+            width: var(--shape-size);
+            height: var(--shape-size);
+            background: var(--shape-color);
+            transform-origin: center;
+            cursor: pointer;
+            outline: none;
+            transition: opacity 0.04s linear, filter 0.04s linear, background-color 0.04s linear;
+            will-change: opacity, filter, background-color;
+        }
+
+        .shape.off {
+            background: var(--shape-off);
+        }
+
+        .shape.original-color.off {
+            background: var(--shape-color);
+            opacity: 0.42;
+            filter: saturate(0.82);
+        }
+
+        .shape.circle {
+            border-radius: 50%;
+        }
+
+        .shape.square {
+            border-radius: 8px;
+        }
+
+        .shape.diamond {
+            border-radius: 8px;
+            transform: rotate(45deg);
+        }
+
+        .shape.triangle {
+            width: 0;
+            height: 0;
+            background: transparent;
+            border-left: calc(var(--shape-size) / 2) solid transparent;
+            border-right: calc(var(--shape-size) / 2) solid transparent;
+            border-bottom: var(--shape-size) solid var(--shape-color);
+        }
+
+        .shape.triangle.off {
+            background: transparent;
+            border-bottom-color: var(--shape-off);
+        }
+
+        .shape.triangle.original-color.off {
+            background: transparent;
+            border-bottom-color: var(--shape-color);
+            opacity: 0.42;
+            filter: saturate(0.82);
+        }
+
+        .status-bar {
+            position: absolute;
+            left: 16px;
+            right: 16px;
+            bottom: 14px;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            color: rgba(255, 255, 255, 0.78);
+            font-size: 0.86rem;
+            pointer-events: none;
+        }
+
+        @media (max-width: 820px) {
+            .app {
+                grid-template-columns: 1fr;
+            }
+
+            .controls {
+                border-right: 0;
+                border-bottom: 1px solid var(--line);
+            }
+
+            .stage-wrap {
+                padding: 14px;
+            }
+
+            .stage {
+                height: 60vh;
+                min-height: 360px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <aside class="controls">
+            <div class="title">
+                <h1>SSVEP 闪烁可视器</h1>
+                <p>在中心区域显示指定形状，并按设定频率闪烁。默认使用方波亮暗切换。</p>
+            </div>
+
+            <div class="field">
+                <label for="frequency">闪烁频率</label>
+                <div class="row">
+                    <input id="frequency" type="range" min="1" max="30" step="0.1" value="10">
+                    <input id="frequency-number" type="number" min="1" max="30" step="0.1" value="10">
+                </div>
+                <small id="frequency-label">当前频率：10.0 Hz</small>
+            </div>
+
+            <div class="field">
+                <label for="shape-select">中心形状</label>
+                <select id="shape-select">
+                    <option value="circle">圆形</option>
+                    <option value="square">方形</option>
+                    <option value="diamond">菱形</option>
+                    <option value="triangle">三角形</option>
+                </select>
+            </div>
+
+            <div class="field">
+                <label for="shape-size">形状大小</label>
+                <div class="row">
+                    <input id="shape-size" type="range" min="80" max="300" step="4" value="180">
+                    <input id="shape-size-number" type="number" min="80" max="300" step="4" value="180">
+                </div>
+                <small id="size-label">当前大小：180 px</small>
+            </div>
+
+            <div class="field">
+                <label for="on-color">亮色</label>
+                <input id="on-color" type="color" value="#ffffff">
+            </div>
+
+            <div class="field">
+                <label for="off-color">暗色</label>
+                <input id="off-color" type="color" value="#151f2a">
+            </div>
+
+            <div class="field">
+                <label for="stage-color">背景色</label>
+                <input id="stage-color" type="color" value="#101820">
+            </div>
+
+            <div class="field">
+                <label>
+                    <input id="original-color-toggle" type="checkbox">
+                    原色低刺激显示
+                </label>
+                <small>开启后保持亮色原色，只用轻微明暗变化闪烁，肉眼刺激更小。</small>
+            </div>
+
+            <div class="button-row">
+                <button id="toggle" class="primary" type="button">开始闪烁</button>
+                <button id="fullscreen" class="secondary" type="button">全屏</button>
+            </div>
+
+            <button id="reset" class="secondary" type="button">恢复默认</button>
+
+            <div class="readout" id="readout">状态：已暂停</div>
+            <div class="readout" id="selection-status">选择：尚未选择</div>
+        </aside>
+
+        <section class="stage-wrap">
+            <div class="stage" id="stage">
+                <div class="center-zone" id="center-zone">
+                    <div class="shape circle" id="shape" role="button" tabindex="0" aria-label="选择当前闪烁目标"></div>
+                </div>
+                <div class="status-bar">
+                    <span id="stage-frequency">10.0 Hz</span>
+                    <span>中心刺激区域</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        (function() {
+            var state = {
+                running: false,
+                rafId: null,
+                startTime: 0,
+                frequency: 10,
+                originalColor: false,
+                selectedCount: 0,
+                lastSelectedAt: null
+            };
+
+            var root = document.documentElement;
+            var stage = document.getElementById("stage");
+            var centerZone = document.getElementById("center-zone");
+            var shape = document.getElementById("shape");
+            var frequency = document.getElementById("frequency");
+            var frequencyNumber = document.getElementById("frequency-number");
+            var frequencyLabel = document.getElementById("frequency-label");
+            var stageFrequency = document.getElementById("stage-frequency");
+            var shapeSelect = document.getElementById("shape-select");
+            var shapeSize = document.getElementById("shape-size");
+            var shapeSizeNumber = document.getElementById("shape-size-number");
+            var sizeLabel = document.getElementById("size-label");
+            var onColor = document.getElementById("on-color");
+            var offColor = document.getElementById("off-color");
+            var stageColor = document.getElementById("stage-color");
+            var originalColorToggle = document.getElementById("original-color-toggle");
+            var toggle = document.getElementById("toggle");
+            var fullscreen = document.getElementById("fullscreen");
+            var reset = document.getElementById("reset");
+            var readout = document.getElementById("readout");
+            var selectionStatus = document.getElementById("selection-status");
+
+            function clamp(value, min, max) {
+                return Math.min(max, Math.max(min, value));
+            }
+
+            function now() {
+                return window.performance && window.performance.now ? window.performance.now() : Date.now();
+            }
+
+            function formatHz(value) {
+                return Number(value).toFixed(1) + " Hz";
+            }
+
+            function setFrequency(value) {
+                var next = clamp(Number(value) || 1, 1, 30);
+                state.frequency = next;
+                frequency.value = next;
+                frequencyNumber.value = next.toFixed(1);
+                frequencyLabel.textContent = "当前频率：" + formatHz(next);
+                stageFrequency.textContent = formatHz(next);
+                updateReadout();
+            }
+
+            function setShapeSize(value) {
+                var next = clamp(Number(value) || 180, 80, 300);
+                root.style.setProperty("--shape-size", next + "px");
+                shapeSize.value = next;
+                shapeSizeNumber.value = Math.round(next);
+                sizeLabel.textContent = "当前大小：" + Math.round(next) + " px";
+            }
+
+            function setShape(name) {
+                var classes = "shape " + name;
+                if (state.originalColor) {
+                    classes += " original-color";
+                }
+                if (shape.classList.contains("off")) {
+                    classes += " off";
+                }
+                shape.className = classes;
+            }
+
+            function updateColors() {
+                root.style.setProperty("--shape-color", onColor.value);
+                root.style.setProperty("--shape-off", offColor.value);
+                root.style.setProperty("--stage-bg", stageColor.value);
+            }
+
+            function updateReadout() {
+                readout.textContent = "状态：" + (state.running ? "闪烁中，" : "已暂停，") + formatHz(state.frequency) + (state.originalColor ? "，原色低刺激" : "，亮暗切换");
+                selectionStatus.textContent = state.lastSelectedAt ? ("选择：已选择 " + state.selectedCount + " 次，最近 " + state.lastSelectedAt) : "选择：尚未选择";
+            }
+
+            function setOriginalColorMode(enabled) {
+                state.originalColor = Boolean(enabled);
+                shape.classList.toggle("original-color", state.originalColor);
+                updateReadout();
+            }
+
+            function selectCurrentTarget() {
+                state.selectedCount += 1;
+                state.lastSelectedAt = new Date().toLocaleTimeString();
+                centerZone.classList.add("selected");
+                window.setTimeout(function() {
+                    centerZone.classList.remove("selected");
+                }, 420);
+                updateReadout();
+            }
+
+            function renderFrame(timestamp) {
+                var elapsedSeconds = (timestamp - state.startTime) / 1000;
+                var wave = Math.sin(2 * Math.PI * state.frequency * elapsedSeconds);
+                shape.classList.toggle("off", wave < 0);
+                state.rafId = window.requestAnimationFrame(renderFrame);
+            }
+
+            function start() {
+                if (state.running) {
+                    return;
+                }
+                state.running = true;
+                state.startTime = now();
+                toggle.textContent = "暂停闪烁";
+                toggle.className = "danger";
+                state.rafId = window.requestAnimationFrame(renderFrame);
+                updateReadout();
+            }
+
+            function stop() {
+                state.running = false;
+                if (state.rafId !== null && window.cancelAnimationFrame) {
+                    window.cancelAnimationFrame(state.rafId);
+                }
+                state.rafId = null;
+                shape.classList.remove("off");
+                toggle.textContent = "开始闪烁";
+                toggle.className = "primary";
+                updateReadout();
+            }
+
+            function resetDefaults() {
+                stop();
+                setFrequency(10);
+                shapeSelect.value = "circle";
+                setShape("circle");
+                setShapeSize(180);
+                onColor.value = "#ffffff";
+                offColor.value = "#151f2a";
+                stageColor.value = "#101820";
+                originalColorToggle.checked = false;
+                setOriginalColorMode(false);
+                state.selectedCount = 0;
+                state.lastSelectedAt = null;
+                centerZone.classList.remove("selected");
+                updateColors();
+                updateReadout();
+            }
+
+            frequency.addEventListener("input", function() {
+                setFrequency(this.value);
+            });
+
+            frequencyNumber.addEventListener("input", function() {
+                setFrequency(this.value);
+            });
+
+            shapeSelect.addEventListener("change", function() {
+                setShape(this.value);
+            });
+
+            shapeSize.addEventListener("input", function() {
+                setShapeSize(this.value);
+            });
+
+            shapeSizeNumber.addEventListener("input", function() {
+                setShapeSize(this.value);
+            });
+
+            onColor.addEventListener("input", updateColors);
+            offColor.addEventListener("input", updateColors);
+            stageColor.addEventListener("input", updateColors);
+            originalColorToggle.addEventListener("change", function() {
+                setOriginalColorMode(this.checked);
+            });
+
+            toggle.addEventListener("click", function() {
+                if (state.running) {
+                    stop();
+                } else {
+                    start();
+                }
+            });
+
+            fullscreen.addEventListener("click", function() {
+                if (stage.requestFullscreen) {
+                    stage.requestFullscreen();
+                }
+            });
+
+            reset.addEventListener("click", resetDefaults);
+            shape.addEventListener("click", selectCurrentTarget);
+            shape.addEventListener("keydown", function(event) {
+                if (event.key === " " || event.key === "Enter") {
+                    event.preventDefault();
+                    selectCurrentTarget();
+                }
+            });
+
+            window.addEventListener("beforeunload", stop);
+            setFrequency(10);
+            setShapeSize(180);
+            updateColors();
+            setOriginalColorMode(false);
+            updateReadout();
+        }());
+    </script>
+</body>
+</html>

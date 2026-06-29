@@ -1,0 +1,294 @@
+{
+  "created_at": "2026-06-01T22:22:10+0800",
+  "stage": "tts",
+  "timing_mode": "warm",
+  "comparison": "internal_batch2_vs_internal_batch1_twice",
+  "setup_seconds": 1.338,
+  "warmup_runs": 1,
+  "warmup": {
+    "batch2_seconds": [
+      22.833
+    ],
+    "batch1_twice_seconds": [
+      24.637
+    ]
+  },
+  "sampling_rate": 32000,
+  "config": "GPT-SoVITS/GPT_SoVITS/configs/tts_infer_livetalking_v2proplus.yaml",
+  "ref_audio": "bilibili_downloads/DongQing_6s.wav",
+  "prompt_text": "那种快乐常常像一场梦，电影陪伴我们长大",
+  "text_split_method": "cut0",
+  "batch2": {
+    "batch_size": 2,
+    "total_seconds": 4.2,
+    "per_batch_seconds": [
+      4.2
+    ],
+    "batch_index_list": [
+      [
+        0,
+        1
+      ]
+    ],
+    "semantic_model_batch_ok": true,
+    "acoustic_model_batch_ok": true,
+    "is_true_model_batch": true,
+    "evidence": {
+      "requested_batch_size": 2,
+      "semantic_model_calls": [
+        {
+          "method": "infer_panel_batch_infer",
+          "batch_index": [
+            0,
+            1
+          ],
+          "all_phoneme_ids_shape": "list",
+          "all_phoneme_lens_shape": [
+            2
+          ],
+          "prompt_shape": [
+            2,
+            165
+          ],
+          "all_bert_features_type": "list",
+          "observed_batch_size": 2
+        }
+      ],
+      "vits_decode_calls": [
+        {
+          "codes_shape": [
+            1,
+            2,
+            131
+          ],
+          "text_shape": [
+            2,
+            42
+          ],
+          "y_lengths": [
+            262,
+            254
+          ],
+          "text_lengths": [
+            42,
+            42
+          ],
+          "ge_shape": [
+            2,
+            1024,
+            1
+          ],
+          "observed_batch_size": 2,
+          "decode_mode": "strict_padded_batch"
+        }
+      ],
+      "captured_audio_batches": [
+        {
+          "batch_order": 1,
+          "batch_seconds": 4.2,
+          "outer_batches": 1,
+          "inner_batch_sizes": [
+            2
+          ],
+          "batch_index": [
+            0,
+            1
+          ],
+          "split_bucket": false
+        }
+      ]
+    },
+    "items": [
+      {
+        "id": "dongqing_01",
+        "text": "今天上午阳光很好，我们一起去公园慢慢散步吧。",
+        "wav_path": "test/ck_time/tts_internal_batch_compare_dongqing_20char/batch2/dongqing_01.wav",
+        "audio_duration_seconds": 5.34,
+        "audio_info": {
+          "channels": 1,
+          "sample_rate": 32000,
+          "sample_width": 2,
+          "frames": 170880,
+          "duration_seconds": 5.34
+        }
+      },
+      {
+        "id": "dongqing_02",
+        "text": "下午会议结束以后，请把今天测试结果整理清楚。",
+        "wav_path": "test/ck_time/tts_internal_batch_compare_dongqing_20char/batch2/dongqing_02.wav",
+        "audio_duration_seconds": 5.18,
+        "audio_info": {
+          "channels": 1,
+          "sample_rate": 32000,
+          "sample_width": 2,
+          "frames": 165760,
+          "duration_seconds": 5.18
+        }
+      }
+    ]
+  },
+  "batch1_twice": {
+    "batch_size": 1,
+    "num_runs": 2,
+    "total_seconds": 1.068,
+    "per_run_seconds": [
+      0.526,
+      0.542
+    ],
+    "batch_index_list": [
+      [
+        0
+      ],
+      [
+        1
+      ]
+    ],
+    "semantic_model_batch_ok": true,
+    "acoustic_model_batch_ok": true,
+    "evidence": {
+      "requested_batch_size": 1,
+      "semantic_model_calls": [
+        {
+          "method": "infer_panel_batch_infer",
+          "batch_index": [
+            0
+          ],
+          "all_phoneme_ids_shape": "list",
+          "all_phoneme_lens_shape": [
+            1
+          ],
+          "prompt_shape": [
+            1,
+            165
+          ],
+          "all_bert_features_type": "list",
+          "observed_batch_size": 1
+        },
+        {
+          "method": "infer_panel_batch_infer",
+          "batch_index": [
+            1
+          ],
+          "all_phoneme_ids_shape": "list",
+          "all_phoneme_lens_shape": [
+            1
+          ],
+          "prompt_shape": [
+            1,
+            165
+          ],
+          "all_bert_features_type": "list",
+          "observed_batch_size": 1
+        }
+      ],
+      "vits_decode_calls": [
+        {
+          "codes_shape": [
+            1,
+            1,
+            124
+          ],
+          "text_shape": [
+            1,
+            42
+          ],
+          "y_lengths": [
+            248
+          ],
+          "text_lengths": [
+            42
+          ],
+          "ge_shape": [
+            1,
+            1024,
+            1
+          ],
+          "observed_batch_size": 1,
+          "decode_mode": "strict_padded_batch"
+        },
+        {
+          "codes_shape": [
+            1,
+            1,
+            121
+          ],
+          "text_shape": [
+            1,
+            42
+          ],
+          "y_lengths": [
+            242
+          ],
+          "text_lengths": [
+            42
+          ],
+          "ge_shape": [
+            1,
+            1024,
+            1
+          ],
+          "observed_batch_size": 1,
+          "decode_mode": "strict_padded_batch"
+        }
+      ],
+      "captured_audio_batches": [
+        {
+          "batch_order": 1,
+          "batch_seconds": 0.526,
+          "outer_batches": 1,
+          "inner_batch_sizes": [
+            1
+          ],
+          "batch_index": [
+            0
+          ],
+          "split_bucket": false
+        },
+        {
+          "batch_order": 2,
+          "batch_seconds": 0.542,
+          "outer_batches": 1,
+          "inner_batch_sizes": [
+            1
+          ],
+          "batch_index": [
+            1
+          ],
+          "split_bucket": false
+        }
+      ]
+    },
+    "items": [
+      {
+        "id": "dongqing_01",
+        "text": "今天上午阳光很好，我们一起去公园慢慢散步吧。",
+        "wav_path": "test/ck_time/tts_internal_batch_compare_dongqing_20char/batch1_twice/dongqing_01.wav",
+        "audio_duration_seconds": 5.06,
+        "audio_info": {
+          "channels": 1,
+          "sample_rate": 32000,
+          "sample_width": 2,
+          "frames": 161920,
+          "duration_seconds": 5.06
+        }
+      },
+      {
+        "id": "dongqing_02",
+        "text": "下午会议结束以后，请把今天测试结果整理清楚。",
+        "wav_path": "test/ck_time/tts_internal_batch_compare_dongqing_20char/batch1_twice/dongqing_02.wav",
+        "audio_duration_seconds": 4.94,
+        "audio_info": {
+          "channels": 1,
+          "sample_rate": 32000,
+          "sample_width": 2,
+          "frames": 158080,
+          "duration_seconds": 4.94
+        }
+      }
+    ]
+  },
+  "speedup": {
+    "batch1_twice_over_batch2": 0.2543,
+    "seconds_saved_by_batch2": -3.132
+  }
+}

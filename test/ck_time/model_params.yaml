@@ -1,0 +1,52 @@
+llm:
+  prompt: "请生成一句自然的中文数字人口播文案，长度控制在二十八到三十二个汉字，朗读时长大约七秒，只输出这一句话。"
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-chat"
+  temperature: 0.7
+  max_tokens: 80
+
+tts:
+  server: "http://127.0.0.1:9880"
+  params_file: "gpt_sovits_official_materials/current_tts_params.json"
+  ref_id: "DongQing_6s"
+  ref_audio: "bilibili_downloads/DongQing_6s.wav"
+  transcript_file: "docs/notes/content.txt"
+  timeout: 180
+  tail_silence_seconds: 1.0
+  speed_factor: 1.08
+  fragment_interval: 0.1
+  streaming_mode: 0
+  media_type: "wav"
+  text_lang: "zh"
+  prompt_lang: "zh"
+  split_method: "cut5"
+
+latentsync:
+  script: "LatentSync_test/run_latentsync_dongqing_batch.py"
+  root: "third_party/LatentSync"
+  stage1_video: "LatentSync_test/api_stage1.mp4"
+  unet_config: "configs/unet/stage2_512.yaml"
+  checkpoint: "checkpoints/latentsync_unet.pt"
+  whisper_tiny: "checkpoints/whisper/tiny.pt"
+  vae_path: "models/sd-vae"
+  inference_steps: 20
+  guidance_scale: 2.2
+  seed: 1247
+  enable_deepcache: true
+  benchmark_enable_deepcache: false
+  skip_dep_check: false
+  benchmark_steps:
+    - name: "warmup_20"
+      inference_steps: 20
+      warmup: true
+    - name: "measure_20"
+      inference_steps: 20
+      warmup: false
+    - name: "measure_30"
+      inference_steps: 30
+      warmup: false
+
+output:
+  out_dir: "test/ck_time/outputs"
+  benchmark_out_dir: "test/ck_time/outputs_steps_benchmark"
+  benchmark_work_dir: "test/ck_time/_work_steps_benchmark"

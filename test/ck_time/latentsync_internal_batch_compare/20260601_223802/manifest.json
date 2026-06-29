@@ -1,0 +1,81 @@
+{
+  "created_at": "2026-06-01T22:40:53+0800",
+  "stage": "talking_head",
+  "engine": "LatentSync",
+  "mode": "batch1_once",
+  "algorithm": "official_LipsyncPipeline.__call__",
+  "model_load_seconds": 5.502,
+  "warmup_runs": 1,
+  "warmup": [
+    {
+      "mode": "warmup_batch1_once",
+      "batch_size": 1,
+      "num_runs": 1,
+      "total_seconds": 81.575,
+      "run_seconds": [
+        81.196
+      ],
+      "runs": [
+        {
+          "run_index": 1,
+          "audio": "test/ck_time/tts_internal_batch_compare_dongqing_20char/batch2/dongqing_01.wav",
+          "output": "test/ck_time/latentsync_internal_batch_compare/20260601_223802/warmup_batch1_once/dongqing_01.mp4",
+          "elapsed_seconds": 81.196,
+          "audio_duration_seconds": 5.34,
+          "video_duration_seconds": 5.404
+        }
+      ]
+    }
+  ],
+  "video": "LatentSync_test/api_stage1.mp4",
+  "audio_paths": [
+    "test/ck_time/tts_internal_batch_compare_dongqing_20char/batch2/dongqing_01.wav"
+  ],
+  "inference_steps": 20,
+  "guidance_scale": 2.2,
+  "seed": 1247,
+  "enable_deepcache": false,
+  "batch1_once": {
+    "mode": "batch1_once",
+    "batch_size": 1,
+    "num_runs": 1,
+    "total_seconds": 81.4,
+    "run_seconds": [
+      81.092
+    ],
+    "runs": [
+      {
+        "run_index": 1,
+        "audio": "test/ck_time/tts_internal_batch_compare_dongqing_20char/batch2/dongqing_01.wav",
+        "output": "test/ck_time/latentsync_internal_batch_compare/20260601_223802/batch1_once/dongqing_01.mp4",
+        "elapsed_seconds": 81.092,
+        "audio_duration_seconds": 5.34,
+        "video_duration_seconds": 5.404,
+        "evidence": {
+          "uses_official_lipsync_pipeline_call": true,
+          "unet_forward_calls": [
+            {
+              "unet_input_shape": [
+                2,
+                13,
+                16,
+                64,
+                64
+              ],
+              "encoder_hidden_states_shape": [
+                32,
+                50,
+                384
+              ],
+              "observed_unet_batch": 2,
+              "cfg_enabled": true
+            }
+          ],
+          "expected_sample_batch": 1,
+          "cfg_enabled": true
+        },
+        "is_true_batch1_pipeline_call": true
+      }
+    ]
+  }
+}

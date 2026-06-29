@@ -1,0 +1,16 @@
+cd /home/qianustb/LiveTalking/third_party/LatentSync
+
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+LIVETALKING_ROOT=/home/qianustb/LiveTalking \
+LATENTSYNC_VAE_PATH=/home/qianustb/LiveTalking/models/sd-vae \
+python -m scripts.inference \
+  --unet_config_path configs/unet/stage2_512.yaml \
+  --inference_ckpt_path checkpoints/latentsync_unet.pt \
+  --inference_steps 20 \
+  --guidance_scale 1.0 \
+  --batch_size 2 \
+  --video_paths "assets/demo1_video.mp4,assets/demo1_video.mp4" \
+  --audio_paths "assets/demo2_audio.wav,assets/demo2_audio.wav" \
+  --video_out_paths "video_out_same_video_audio1.mp4,video_out_same_video_audio2.mp4" \
+  --temp_dir temp_batch2_same_video_profile \
+  --profile_summary_path temp_batch2_same_video_profile/profile_summary.json

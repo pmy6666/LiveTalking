@@ -1,0 +1,80 @@
+wav2lip：
+
+./start_gpt_sovits_v2proplus.sh
+
+python3 app.py \
+  --transport webrtc \
+  --model wav2lip \
+  --avatar_id wav2lip256_avatar1 \
+  --tts gpt-sovits \
+  --TTS_SERVER http://127.0.0.1:9880 \
+  --TTS_MEDIA_TYPE wav \
+  --GPT_SOVITS_STREAMING_MODE 2 \
+  --REF_FILE bilibili_downloads/DongQing_6s.wav \
+  --REF_TEXT "那种快乐常常像一场梦，电影陪伴我们长大" \
+  --listenport 8010
+
+
+EchoMimicV3:
+
+cd .
+./start_gpt_sovits_v2proplus.sh
+
+cd .
+
+# 已完成 default_choice_tree 的 EchoMimicV3 预处理缓存：
+# cache/choice_echomimicv3/default_choice_tree/
+# 注意：下面的 sample_size、tts、REF_FILE、REF_TEXT 等参数需要和预处理时保持一致，
+# 否则运行时会计算出新的 cache_key，导致 video_cache_hit=false。
+
+cd .
+../envs/livetalking/bin/python app.py \
+  --transport webrtc \
+  --model echomimicv3 \
+  --avatar_id avatar6 \
+  --tts gpt-sovits \
+  --TTS_SERVER http://127.0.0.1:9880 \
+  --TTS_MEDIA_TYPE wav \
+  --GPT_SOVITS_STREAMING_MODE 2 \
+  --REF_FILE bilibili_downloads/DongQing_6s.wav \
+  --REF_TEXT "那种快乐常常像一场梦，电影陪伴我们长大" \
+  --max_session 1 \
+  --echomimicv3_repo third_party/echomimic_v3 \
+  --echomimicv3_model_dir EchoMimicV3 \
+  --echomimicv3_base_model_dir Wan2.1-Fun-1.3B-InP \
+  --echomimicv3_wav2vec_dir chinese-wav2vec2-base \
+  --echomimicv3_sample_size 768 768 \
+  --echomimicv3_video_length 201 \
+  --echomimicv3_num_steps 20 \
+  --echomimicv3_guidance_scale 5.5 \
+  --echomimicv3_audio_guidance_scale 4.0 \
+  --echomimicv3_gpu_memory_mode model_cpu_offload \
+  --listenport 8010
+
+
+two stage:
+
+cd .
+PYTHON_BIN=../envs/livetalking/bin/python ./start_gpt_sovits_v2proplus.sh
+
+cd .
+scripts/two_stage_pre/start_choice_talking_head.sh
+
+
+SSVEP 独立选项窗口：
+
+# 先在网页开始连接。脚本会通过 /api/sessions 自动获取最新 sessionid。
+# 如需手动指定，也可以把 sessionid 填到 scripts/ssvep/config.yaml 里的 sessionid 字段。
+# 脚本直接读取固定选项树 data/choice_trees/default_choice_tree.json，
+# 按 1/2/3 后本地更新到下一组选项，同时调用后端 /choice/select 同步数字人。
+# width/height 可调窗口大小，spacing 调大三个选项之间的距离。
+cd .
+../envs/livetalking/bin/python scripts/ssvep/choice_ssvep_window.py \
+  --config scripts/ssvep/config.yaml
+
+# 快捷键：
+# Q/ESC 退出
+# R 重置到根节点，并同步后端
+# 1/2/3 模拟 SSVEP 识别并提交选择
+# +/- 调整选项间距
+# [/] 调整选项块大小

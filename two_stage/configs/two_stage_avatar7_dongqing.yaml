@@ -1,0 +1,38 @@
+# Required inputs and final output.
+image_path: assets/avatars/avatar7.png
+audio_path: gpt_sovits_official_materials/generated_bilibili_refs_tts/DongQing_6s/01_morning_breakfast.wav
+video_path: LatentSync_test/generated_videos_avatar7_dongqing_yaml_two_stage/final/01_morning_breakfast.mp4
+
+# Intermediate outputs.
+output_root: LatentSync_test/generated_videos_avatar7_dongqing_yaml_two_stage
+stage1_output_dir: Echo_mimicV3_test/generated_videos_avatar7_dongqing_yaml_stage1
+stage2_output_dir: LatentSync_test/generated_videos_avatar7_dongqing_yaml_two_stage/stage2
+
+# Stage 1: identity and natural-motion generation.
+# video_length is intentionally omitted. The runner calculates it from audio duration.
+echomimicv3:
+  workflow: jimeng
+  quality_preset: low
+  sample_size: [512, 512]
+  num_inference_steps: 20
+  fps: 25
+  tail_padding_seconds: 0.0
+  length_safety_frames: 4
+  auto_trim: false
+  guidance_scale: 3.8
+  audio_guidance_scale: 4.2
+  teacache_threshold: 0.1
+  num_skip_start_steps: 5
+  seed: 43
+  weight_dtype: bfloat16
+  gpu_memory_mode: model_cpu_offload
+  use_dynamic_acfg: true
+  overwrite: true
+
+# Stage 2: lip-sync refinement.
+latentsync:
+  inference_steps: 30
+  guidance_scale: 2.2
+  seed: 1247
+  enable_deepcache: true
+  skip_dep_check: true

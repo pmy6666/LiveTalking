@@ -1,0 +1,20 @@
+# LiveTalking SSVEP independent choice window config.
+server: http://127.0.0.1:8010
+# auto/latest means: query server /api/sessions and use the latest ready session.
+sessionid: auto
+# X11 display for the independent PsychoPy window. Use ":0" for a local
+# Ubuntu desktop; leave empty only if your terminal already has DISPLAY.
+display: ":0"
+choice_tree: data/choice_trees/default_choice_tree.json
+
+width: 1280
+height: 520
+fullscreen: false
+
+block_size: 300
+spacing: 460
+lut_len: 1000
+
+# Set true for local display/testing only. When false, the script calls
+# /choice/init on startup and /choice/select when 1/2/3 is pressed.
+no_server_init: false

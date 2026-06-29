@@ -1,0 +1,94 @@
+# Choice-mode Talking Head config.
+choice:
+  tree_id: default_choice_tree
+  video_cache_mode: two_stage
+  idle_loop:
+    enabled: true
+    audio_name: idle_loop_silence
+    duration_seconds: 5.0
+    reference_source_node_id: root
+    reference_mode: color_match_avatar
+    reference_frame_start: 3
+    reference_frame_count: 6
+    reference_color_strength: 0.75
+    reference_sharpen_amount: 0.25
+    frames_dir_name: idle_frames_two_stage_silence
+    max_frames: 125
+
+runtime:
+  model: echomimicv3
+  avatar_id: avatar7
+  transport: webrtc
+  max_session: 1
+  listenport: 8010
+  tts: gpt-sovits
+  batch_size: 16
+  echomimicv3_idle_breath_enabled: true
+  echomimicv3_idle_breath_cycle_seconds: 4.2
+  echomimicv3_idle_breath_scale: 0.006
+  echomimicv3_idle_breath_shift: 0.0045
+  echomimicv3_idle_breath_sway: 0.003
+
+paths:
+  echomimicv3_repo: third_party/echomimic_v3
+  echomimicv3_model_dir: EchoMimicV3
+  echomimicv3_base_model_dir: Wan2.1-Fun-1.3B-InP
+  echomimicv3_wav2vec_dir: chinese-wav2vec2-base
+
+tts:
+  name: gpt-sovits
+  server: http://127.0.0.1:9880
+  media_type: wav
+  streaming_mode: 2
+  text_lang: zh
+  prompt_lang: zh
+  split_method: cut5
+  speed_factor: 1.08
+  fragment_interval: 0.1
+
+# Batch settings for choice-mode two-stage video precompute.
+runner: two_stage/run_two_stage_yaml_pipeline.py
+output_root: cache/choice_two_stage
+choice_cache_root: cache/choice_echomimicv3
+
+voices:
+  male:
+    avatar_id: avatar6
+    image_path: assets/avatars/avatar6.png
+    audio_dir: cache/choice_audio_wav/male
+    ref_file: bilibili_downloads/SaBeining.wav
+    ref_text: 三位航天员你们好，我是朗读者，撒贝宁
+  female:
+    avatar_id: avatar7
+    image_path: assets/avatars/avatar7.png
+    audio_dir: cache/choice_audio_wav/female
+    ref_file: bilibili_downloads/DongQing_6s.wav
+    ref_text: 那种快乐常常像一场梦，电影陪伴我们长大
+
+# Stage 1: EchoMimicV3 identity and natural-motion generation.
+echomimicv3:
+  workflow: jimeng
+  quality_preset: low
+  sample_size: [512, 512]
+  num_inference_steps: 20
+  fps: 25
+  tail_padding_seconds: 0.0
+  length_safety_frames: 4
+  auto_trim: false
+  guidance_scale: 3.8
+  audio_guidance_scale: 3.5
+  teacache_threshold: 0.1
+  num_skip_start_steps: 5
+  seed: 43
+  weight_dtype: bfloat16
+  gpu_memory_mode: model_cpu_offload
+  use_dynamic_acfg: true
+  overwrite: true
+
+# Stage 2: LatentSync lip-sync refinement.
+latentsync:
+  inference_steps: 20
+  guidance_scale: 2.2
+  seed: 1247
+  enable_deepcache: true
+  skip_dep_check: true
