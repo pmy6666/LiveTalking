@@ -556,7 +556,8 @@ def run_pyglet_main(args):
         anchor_x="center",
         anchor_y="center",
         multiline=True,
-        width=max(260, int(args.width * 0.72)),
+        width=max(260, int(args.width * 0.90)),
+        align="center",
     )
     waiting_status = pyglet.text.Label(
         "数字人回答中...",
@@ -749,7 +750,7 @@ def run_pyglet_main(args):
         waiting_title.y = int(height * 0.70)
         waiting_choice.x = width // 2
         waiting_choice.y = int(height * 0.50)
-        waiting_choice.width = max(260, int(width * 0.72))
+        waiting_choice.width = max(260, int(width * 0.90))
         waiting_status.x = width // 2
         waiting_status.y = int(height * 0.28)
         for item, pos in zip(target_items, positions):
@@ -918,7 +919,9 @@ def main():
         height=34,
         color=[1, 1, 1],
         bold=True,
-        wrapWidth=current_width * 0.76,
+        wrapWidth=current_width * 0.90,
+        alignText="center",
+        anchorHoriz="center",
     )
     waiting_status = visual.TextStim(
         win,
@@ -1116,7 +1119,7 @@ def main():
                 status_text.wrapWidth = current_width * 0.9
                 waiting_title.pos = (0, current_height * 0.22)
                 waiting_choice.pos = (0, current_height * 0.02)
-                waiting_choice.wrapWidth = current_width * 0.76
+                waiting_choice.wrapWidth = current_width * 0.90
                 waiting_status.pos = (0, -current_height * 0.24)
                 waiting_status.wrapWidth = current_width * 0.86
     
