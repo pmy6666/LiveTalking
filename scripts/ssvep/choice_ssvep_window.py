@@ -74,7 +74,7 @@ def get_json(base_url, path, timeout=1.5):
 
 def resolve_sessionid(base_url, configured_sessionid):
     sessionid = str(configured_sessionid or "").strip()
-    if sessionid and sessionid not in {"auto", "latest", "浣犵殑sessionid"}:
+    if sessionid and sessionid not in {"auto", "latest", "你的sessionid"}:
         return sessionid
 
     try:
@@ -100,7 +100,7 @@ def resolve_sessionid(base_url, configured_sessionid):
 
 def wait_for_sessionid(base_url, configured_sessionid, timeout_seconds=120.0, poll_interval=1.0):
     sessionid = str(configured_sessionid or "").strip()
-    if sessionid and sessionid not in {"auto", "latest", "娴ｇ姷娈憇essionid"}:
+    if sessionid and sessionid not in {"auto", "latest", "你的sessionid"}:
         return sessionid
 
     timeout_seconds = max(1.0, float(timeout_seconds or 120.0))
@@ -366,6 +366,10 @@ def shorten_choice_text(text, text_width, font_size):
     return shorten_text(text, max_chars=max(8, chars_per_line * 2))
 
 
+def display_choice_text(choice, max_chars=48):
+    return shorten_text(choice.get("choice_text") or "", max_chars=max_chars) or "已选择当前选项"
+
+
 def make_layout(width, height, block_size, spacing):
     actual_spacing = actual_target_spacing(width, block_size, spacing)
     rect_h = block_size * 0.58
@@ -401,7 +405,7 @@ def make_target(win, index, pos, block_size):
     )
     label = visual.TextStim(
         win,
-        text="绛夊緟閫夐」",
+        text="等待选项",
         pos=(pos[0], pos[1] - block_size * 0.42),
         height=max(18, block_size * 0.065),
         color=[1, 1, 1],
@@ -538,6 +542,30 @@ def run_pyglet_main(args):
         width=max(200, int(args.width * 0.9)),
         batch=batch,
     )
+    waiting_title = pyglet.text.Label(
+        "已选择",
+        font_size=24,
+        color=(210, 235, 255, 255),
+        anchor_x="center",
+        anchor_y="center",
+    )
+    waiting_choice = pyglet.text.Label(
+        "",
+        font_size=28,
+        color=(255, 255, 255, 255),
+        anchor_x="center",
+        anchor_y="center",
+        multiline=True,
+        width=max(260, int(args.width * 0.72)),
+    )
+    waiting_status = pyglet.text.Label(
+        "数字人回答中...",
+        font_size=16,
+        color=(180, 210, 230, 255),
+        anchor_x="center",
+        anchor_y="center",
+    )
+    waiting_view = {"active": False, "choice_text": ""}
 
     target_items = []
     for index in range(3):
@@ -561,7 +589,7 @@ def run_pyglet_main(args):
             batch=batch,
         )
         label = pyglet.text.Label(
-            "绛夊緟閫夐」",
+            "等待选项",
             font_size=max(16, int(args.block_size * 0.065)),
             color=(255, 255, 255, 255),
             anchor_x="center",
@@ -601,7 +629,7 @@ def run_pyglet_main(args):
             freqs.append(get_choice_frequency(choice, index))
             phases.append(get_choice_phase(choice, index))
             target_items[index]["label"].text = shorten_choice_text(
-                choice.get("choice_text") if choice else "绛夊緟閫夐」",
+                choice.get("choice_text") if choice else "等待选项",
                 text_width,
                 label_font_size,
             )
@@ -634,6 +662,8 @@ def run_pyglet_main(args):
 
     def reset_to_root():
         nonlocal choices, current_node_id, lut_list, last_message
+        waiting_view["active"] = False
+        waiting_view["choice_text"] = ""
         current_node_id = choice_tree["root_node_id"]
         choices = get_node_choices(choice_tree, current_node_id)
         lut_list = build_current_luts()
@@ -663,6 +693,8 @@ def run_pyglet_main(args):
             if current_child in choice_tree["nodes"]:
                 nonlocal_choices_update(current_child)
                 selection_pause.pause()
+                waiting_view["active"] = True
+                waiting_view["choice_text"] = display_choice_text(choice)
             return
         try:
             payload = post_json(
@@ -677,6 +709,8 @@ def run_pyglet_main(args):
             )
             apply_server_state(payload, status_prefix="selected %d" % (index + 1))
             selection_pause.pause()
+            waiting_view["active"] = True
+            waiting_view["choice_text"] = display_choice_text(choice)
             last_message = "selected %d | node: %s" % (index + 1, current_node_id)
         except Exception as exc:
             last_message = "select failed: %s" % exc
@@ -711,6 +745,13 @@ def run_pyglet_main(args):
         status_label.x = width // 2
         status_label.y = int(height * 0.035)
         status_label.width = max(200, int(width * 0.9))
+        waiting_title.x = width // 2
+        waiting_title.y = int(height * 0.70)
+        waiting_choice.x = width // 2
+        waiting_choice.y = int(height * 0.50)
+        waiting_choice.width = max(260, int(width * 0.72))
+        waiting_status.x = width // 2
+        waiting_status.y = int(height * 0.28)
         for item, pos in zip(target_items, positions):
             center_x = width / 2 + pos[0]
             center_y = height / 2 + pos[1]
@@ -764,7 +805,12 @@ def run_pyglet_main(args):
     def on_draw():
         window.clear()
         update_layout()
-        batch.draw()
+        if waiting_view["active"] and selection_pause.locked():
+            waiting_title.draw()
+            waiting_choice.draw()
+            waiting_status.draw()
+        else:
+            batch.draw()
 
     @window.event
     def on_close():
@@ -772,6 +818,8 @@ def run_pyglet_main(args):
 
     def tick(dt):
         nonlocal frame_cnt, last_message
+        if waiting_view["active"] and not selection_pause.locked():
+            waiting_view["active"] = False
         if not args.no_server_init and frame_cnt % max(1, int(actual_fps * args.poll_interval)) == 0:
             try:
                 refresh_from_server(status_prefix="server sync")
@@ -794,6 +842,8 @@ def run_pyglet_main(args):
                 last_message = "%s | %s" % (last_message.split(" | auto SSVEP", 1)[0], auto_ssvep.last_status)
         if gate_status:
             last_message = "%s | %s" % (last_message.split(" | selection paused", 1)[0], gate_status)
+        waiting_choice.text = waiting_view["choice_text"]
+        waiting_status.text = "数字人回答中，请稍候 %.1fs" % selection_pause.remaining()
         status_label.text = last_message
         frame_cnt += 1
 
@@ -847,17 +897,43 @@ def main():
 
     status_text = visual.TextStim(
         win,
-        text="Q/ESC閫€鍑?| R鍒锋柊 | 1/2/3妯℃嫙閫夋嫨",
+        text="Q/ESC 退出 | R 刷新 | 1/2/3 模拟选择",
         pos=(0, -current_height * 0.48),
         height=22,
         color=[0.75, 0.85, 1.0],
         wrapWidth=current_width * 0.9,
     )
+    waiting_title = visual.TextStim(
+        win,
+        text="已选择",
+        pos=(0, current_height * 0.22),
+        height=30,
+        color=[0.72, 0.88, 1.0],
+        bold=True,
+    )
+    waiting_choice = visual.TextStim(
+        win,
+        text="",
+        pos=(0, current_height * 0.02),
+        height=34,
+        color=[1, 1, 1],
+        bold=True,
+        wrapWidth=current_width * 0.76,
+    )
+    waiting_status = visual.TextStim(
+        win,
+        text="数字人回答中...",
+        pos=(0, -current_height * 0.24),
+        height=20,
+        color=[0.72, 0.82, 0.9],
+        wrapWidth=current_width * 0.86,
+    )
+    waiting_view = {"active": False, "choice_text": ""}
 
     frame_cnt = 0
     choices = get_node_choices(choice_tree, current_node_id)
     lut_list = [build_lut(freq, phase, actual_fps, args.lut_len) for freq, phase in zip(DEFAULT_FREQS, DEFAULT_PHASES)]
-    last_message = "鑺傜偣:%s 閫夐」:%d" % (current_node_id, len(choices))
+    last_message = "节点:%s 选项:%d" % (current_node_id, len(choices))
     last_state_signature = choices_signature(current_node_id, choices)
     next_poll_at = 0.0
 
@@ -881,7 +957,7 @@ def main():
             freqs.append(get_choice_frequency(choice, index))
             phases.append(get_choice_phase(choice, index))
             targets[index]["label"].text = shorten_choice_text(
-                choice.get("choice_text") if choice else "绛夊緟閫夐」",
+                choice.get("choice_text") if choice else "等待选项",
                 text_width,
                 label_font_size,
             )
@@ -889,9 +965,9 @@ def main():
         lut_list = [build_lut(freq, phase, actual_fps, args.lut_len) for freq, phase in zip(freqs, phases)]
         last_state_signature = choices_signature(current_node_id, choices)
         auto_ssvep.notify_state_change()
-        last_message = "鑺傜偣:%s 閫夐」:%d" % (current_node_id or "root", len(choices))
+        last_message = "节点:%s 选项:%d" % (current_node_id or "root", len(choices))
 
-    def apply_server_state(payload, status_prefix="鍚庣鍚屾"):
+    def apply_server_state(payload, status_prefix="后端同步"):
         nonlocal choices, current_node_id
         current = payload.get("current") or {}
         server_choices = (current.get("choices") or [])[:3]
@@ -904,7 +980,7 @@ def main():
         render_current_choices(status_prefix=status_prefix)
         return True
 
-    def refresh_from_server(status_prefix="鍚庣鍚屾"):
+    def refresh_from_server(status_prefix="后端同步"):
         payload = post_json(
             args.server,
             "/choice/state",
@@ -917,6 +993,8 @@ def main():
 
     def reset_to_root(sync_server=True):
         nonlocal choices, current_node_id, last_message
+        waiting_view["active"] = False
+        waiting_view["choice_text"] = ""
         current_node_id = choice_tree["root_node_id"]
         choices = get_node_choices(choice_tree, current_node_id)
         render_current_choices(status_prefix="local reset")
@@ -929,7 +1007,7 @@ def main():
                     timeout=3.0,
                 )
                 apply_server_state(payload, status_prefix="reset")
-                last_message = "鑺傜偣:%s 閫夐」:%d" % (current_node_id, len(choices))
+                last_message = "节点:%s 选项:%d" % (current_node_id, len(choices))
             except Exception as exc:
                 last_message = "reset failed: %s" % exc
 
@@ -951,6 +1029,8 @@ def main():
                 choices = get_node_choices(choice_tree, current_node_id)
                 render_current_choices(status_prefix="local selected")
                 selection_pause.pause()
+                waiting_view["active"] = True
+                waiting_view["choice_text"] = display_choice_text(choice)
                 last_message = "selected:%d node:%s" % (index + 1, current_node_id)
             return
         payload = post_json(
@@ -965,6 +1045,8 @@ def main():
         )
         apply_server_state(payload, status_prefix="selected")
         selection_pause.pause()
+        waiting_view["active"] = True
+        waiting_view["choice_text"] = display_choice_text(choice)
         last_message = "selected:%d node:%s" % (index + 1, current_node_id)
 
     if not args.no_server_init:
@@ -976,7 +1058,7 @@ def main():
                 timeout=3.0,
             )
             apply_server_state(payload, status_prefix="initialized")
-            last_message = "鑺傜偣:%s 閫夐」:%d" % (current_node_id, len(choices))
+            last_message = "节点:%s 选项:%d" % (current_node_id, len(choices))
         except Exception as exc:
             last_message = "server init failed, using local tree: %s" % exc
     render_current_choices(status_prefix="current")
@@ -985,6 +1067,8 @@ def main():
     try:
         while True:
             now = time.monotonic()
+            if waiting_view["active"] and not selection_pause.locked():
+                waiting_view["active"] = False
             if not args.no_server_init and now >= next_poll_at:
                 next_poll_at = now + max(0.1, float(args.poll_interval or 0.5))
                 try:
@@ -1030,11 +1114,23 @@ def main():
                 current_width, current_height = width, height
                 status_text.pos = (0, -current_height * 0.48)
                 status_text.wrapWidth = current_width * 0.9
+                waiting_title.pos = (0, current_height * 0.22)
+                waiting_choice.pos = (0, current_height * 0.02)
+                waiting_choice.wrapWidth = current_width * 0.76
+                waiting_status.pos = (0, -current_height * 0.24)
+                waiting_status.wrapWidth = current_width * 0.86
     
             update_target_positions(targets, current_width, current_height, args.block_size, args.spacing)
-            draw_targets(targets, lut_list, frame_cnt, len(choices))
-            status_text.text = last_message
-            status_text.draw()
+            if waiting_view["active"] and selection_pause.locked():
+                waiting_choice.text = waiting_view["choice_text"]
+                waiting_status.text = "数字人回答中，请稍候 %.1fs" % selection_pause.remaining()
+                waiting_title.draw()
+                waiting_choice.draw()
+                waiting_status.draw()
+            else:
+                draw_targets(targets, lut_list, frame_cnt, len(choices))
+                status_text.text = last_message
+                status_text.draw()
             win.flip()
             frame_cnt += 1
     finally:
