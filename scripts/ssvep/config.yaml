@@ -8,13 +8,37 @@ display: ":0"
 choice_tree: data/choice_trees/default_choice_tree.json
 
 width: 1280
-height: 520
+height: 260
 fullscreen: false
 
-block_size: 300
-spacing: 460
+block_size: 260
+spacing: 400
 lut_len: 1000
+poll_interval: 0.5
+wait_session_timeout: 120
+wait_session_interval: 1
 
 # Set true for local display/testing only. When false, the script calls
 # /choice/init on startup and /choice/select when 1/2/3 is pressed.
 no_server_init: false
+
+# Automatic SSVEP result source:
+#   off: manual keyboard only
+#   sim: cycle target 1/2/3 for end-to-end testing
+#   udp: receive MATLAB EEG UDP packets and classify them
+eeg_mode: udp
+sim_target_interval_sec: 3.0
+
+eeg_udp_host: "0.0.0.0"
+eeg_udp_port: 5555
+eeg_channels: 21
+eeg_samples: 750
+eeg_sample_rate: 300
+
+classifier: "fft"
+decision_windows: 3
+min_votes: 2
+confidence_threshold: 0.2
+submit_cooldown_sec: 2.0
+ignore_after_state_change_sec: 0.5
+selection_pause_sec: 10.0

@@ -5,7 +5,9 @@ var choiceState = {
     initialized: false,
     treeId: "default_choice_tree",
     current: null,
-    path: []
+    path: [],
+    pollTimer: null,
+    lastSignature: ""
 };
 var ssvepState = {
     enabled: false,
@@ -163,6 +165,24 @@ function getChoicePhase(choice) {
         return phase;
     }
     return ssvepState.defaultPhases[0];
+}
+
+function buildChoiceSignature(payload) {
+    if (!payload || !payload.current) {
+        return "";
+    }
+    return JSON.stringify({
+        treeId: payload.tree_id || "",
+        path: payload.path || [],
+        nodeId: payload.current.node_id || "",
+        choices: (payload.current.choices || []).map(function(choice) {
+            return {
+                id: choice.choice_id,
+                text: choice.choice_text,
+                frequency: ((choice.ssvep || {}).frequency || choice.ssvep_frequency || "")
+            };
+        })
+    });
 }
 
 function buildSsvepLut(frequency, phase, actualFps, lutLen) {
@@ -344,6 +364,7 @@ function selectChoiceBySsvepTarget(targetIndex) {
 function renderChoiceState(payload) {
     stopSsvepFlicker();
     ssvepState.targets = [];
+    choiceState.lastSignature = buildChoiceSignature(payload);
 
     if (!payload || !payload.current) {
         $("#choice-answer").text("当前还没有可用的选项对话状态。");
@@ -399,6 +420,48 @@ function renderChoiceState(payload) {
     }
 }
 
+function requestChoiceState(options) {
+    options = options || {};
+    if (!ensureSessionReady()) {
+        return Promise.resolve(false);
+    }
+
+    return postJson("/choice/state", {
+        sessionid: String(document.getElementById("sessionid").value)
+    }).then(function(payload) {
+        var data = payload.data || {};
+        if (!data.initialized || !data.current) {
+            return false;
+        }
+        var signature = buildChoiceSignature(data);
+        if (options.force || signature !== choiceState.lastSignature) {
+            renderChoiceState(data);
+            return true;
+        }
+        return false;
+    }).catch(function(error) {
+        console.error("choice state polling failed:", error);
+        return false;
+    });
+}
+
+function startChoiceStatePolling() {
+    stopChoiceStatePolling();
+    choiceState.pollTimer = window.setInterval(function() {
+        if (!choiceState.initialized || !ensureSessionReady()) {
+            return;
+        }
+        requestChoiceState();
+    }, 800);
+}
+
+function stopChoiceStatePolling() {
+    if (choiceState.pollTimer !== null) {
+        window.clearInterval(choiceState.pollTimer);
+        choiceState.pollTimer = null;
+    }
+}
+
 function requestChoiceInit() {
     if (!ensureSessionReady()) {
         alert("请先开始连接");
@@ -421,6 +484,7 @@ function requestChoiceInit() {
             throw new Error(payload.msg || "choice init failed");
         }
         renderChoiceState(payload.data);
+        startChoiceStatePolling();
     }).catch(function(error) {
         console.error(error);
         $("#choice-note").text("选项对话初始化失败：" + error.message);
@@ -448,6 +512,7 @@ function requestChoiceReset() {
             throw new Error(payload.msg || "choice reset failed");
         }
         renderChoiceState(payload.data);
+        startChoiceStatePolling();
     }).catch(function(error) {
         console.error(error);
         $("#choice-note").text("重新开始失败：" + error.message);
@@ -722,6 +787,7 @@ function start() {
 }
 
 function stop() {
+    stopChoiceStatePolling();
     stopSsvepFlicker();
     ssvepState.targets = [];
     document.getElementById("stop").style.display = "none";
@@ -731,6 +797,7 @@ function stop() {
     choiceState.initialized = false;
     choiceState.current = null;
     choiceState.path = [];
+    choiceState.lastSignature = "";
     $("#choice-answer").text("点击“开始连接”后，可以在这里使用三选一的引导式对话。");
     $("#choice-path").text("当前路径：未初始化");
     $("#choice-options").empty();
@@ -748,6 +815,7 @@ function stop() {
 }
 
 window.onunload = function() {
+    stopChoiceStatePolling();
     setTimeout(function() {
         if (pc) {
             pc.close();
@@ -756,6 +824,7 @@ window.onunload = function() {
 };
 
 window.onbeforeunload = function(e) {
+    stopChoiceStatePolling();
     setTimeout(function() {
         if (pc) {
             pc.close();

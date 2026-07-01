@@ -1,5 +1,7 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
+# cd C:\Users\1234\Desktop\PMY\LiveTalking & "F:\miniforge3\envs\LiveTalking\python.exe" scripts\ssvep\choice_ssvep_window.py --server http://127.0.0.1:8010 --sessionid auto
 import argparse
+import importlib.util
 import json
 import math
 import os
@@ -18,6 +20,7 @@ os.environ.setdefault("PYGLET_SHADOW_WINDOW", "0")
 
 DEFAULT_FREQS = [12.8, 11.2, 8.8]
 DEFAULT_PHASES = [0.0, 0.0, 0.0]
+AUTO_MODES = {"off", "sim", "udp"}
 
 
 def setup_psychopy():
@@ -29,8 +32,8 @@ def setup_psychopy():
     except Exception as exc:
         display = os.environ.get("DISPLAY")
         raise RuntimeError(
-            "无法连接到图形显示环境 DISPLAY=%r。请在有桌面显示的终端中运行，"
-            "或在 scripts/ssvep/config.yaml 中设置 display: \":0\" 后重试。"
+            "cannot connect to graphical display DISPLAY=%r. "
+            "Run from a desktop session, or set display: \":0\" in scripts/ssvep/config.yaml."
             % display
         ) from exc
     temp_win.switch_to()
@@ -71,7 +74,7 @@ def get_json(base_url, path, timeout=1.5):
 
 def resolve_sessionid(base_url, configured_sessionid):
     sessionid = str(configured_sessionid or "").strip()
-    if sessionid and sessionid not in {"auto", "latest", "你的sessionid"}:
+    if sessionid and sessionid not in {"auto", "latest", "浣犵殑sessionid"}:
         return sessionid
 
     try:
@@ -93,6 +96,31 @@ def resolve_sessionid(base_url, configured_sessionid):
         if item.get("ready") and item.get("sessionid"):
             return str(item["sessionid"])
     raise RuntimeError("no active LiveTalking session found; please start the web connection first")
+
+
+def wait_for_sessionid(base_url, configured_sessionid, timeout_seconds=120.0, poll_interval=1.0):
+    sessionid = str(configured_sessionid or "").strip()
+    if sessionid and sessionid not in {"auto", "latest", "娴ｇ姷娈憇essionid"}:
+        return sessionid
+
+    timeout_seconds = max(1.0, float(timeout_seconds or 120.0))
+    deadline = time.monotonic() + timeout_seconds
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            return resolve_sessionid(base_url, configured_sessionid)
+        except Exception as exc:
+            last_error = exc
+            print(
+                "waiting for active LiveTalking session; open dashboard and click start connection...",
+                flush=True,
+            )
+            time.sleep(max(0.2, float(poll_interval or 1.0)))
+
+    raise RuntimeError(
+        "no active LiveTalking session found within %.0fs; please start the web connection first. last error: %s"
+        % (timeout_seconds, last_error)
+    )
 
 
 def load_choice_tree(path):
@@ -140,6 +168,25 @@ def get_node_choices(tree, node_id):
     return (node.get("choices") or [])[:3]
 
 
+def choices_signature(node_id, choices):
+    return json.dumps(
+        {
+            "node_id": node_id,
+            "choices": [
+                {
+                    "choice_id": choice.get("choice_id"),
+                    "choice_text": choice.get("choice_text"),
+                    "frequency": (choice.get("ssvep") or {}).get("frequency") or choice.get("ssvep_frequency"),
+                    "phase": (choice.get("ssvep") or {}).get("phase") or choice.get("ssvep_phase"),
+                }
+                for choice in choices
+            ],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
 def build_lut(frequency, phase, actual_fps, lut_len):
     fps = actual_fps or 60
     return [
@@ -167,6 +214,133 @@ def get_choice_phase(choice, index):
         return DEFAULT_PHASES[index % len(DEFAULT_PHASES)]
 
 
+def print_choice_log(index, choice, node_id, source="choice"):
+    choice_text = str(choice.get("choice_text") or "").strip() or "(empty)"
+    choice_id = str(choice.get("choice_id") or "").strip() or "(no choice_id)"
+    child_node_id = str(choice.get("child_node_id") or "").strip()
+    child_text = " child_node=%s" % child_node_id if child_node_id else ""
+    print(
+        "[SSVEP choice] source=%s selected=%d text=%s choice_id=%s node=%s%s"
+        % (source, index + 1, choice_text, choice_id, node_id or "root", child_text),
+        flush=True,
+    )
+
+
+class AutoSSVEPController:
+    def __init__(self, args):
+        mode = str(getattr(args, "eeg_mode", "off") or "off").strip().lower()
+        if mode not in AUTO_MODES:
+            raise ValueError("--eeg-mode must be one of: %s" % ", ".join(sorted(AUTO_MODES)))
+        self.args = args
+        self.mode = mode
+        self.receiver = None
+        self.classifier = None
+        self.smoother = None
+        self.last_sim_at = 0.0
+        self.next_sim_target = 1
+        self.ignore_until = 0.0
+        self.last_status = "auto SSVEP: off"
+
+        if self.mode == "udp":
+            from eeg_udp_receiver import EEGUDPReceiver
+            from ssvep_classifier import DecisionSmoother, FFTSSVEPClassifier
+
+            self.receiver = EEGUDPReceiver(
+                host=args.eeg_udp_host,
+                port=args.eeg_udp_port,
+                expected_channels=args.eeg_channels,
+                expected_samples=args.eeg_samples,
+            )
+            self.classifier = FFTSSVEPClassifier(sample_rate=args.eeg_sample_rate)
+            self.smoother = DecisionSmoother(
+                decision_windows=args.decision_windows,
+                min_votes=args.min_votes,
+                confidence_threshold=args.confidence_threshold,
+                submit_cooldown_sec=args.submit_cooldown_sec,
+            )
+            self.last_status = "auto SSVEP: udp waiting on %s:%d" % (args.eeg_udp_host, args.eeg_udp_port)
+        elif self.mode == "sim":
+            self.last_status = "auto SSVEP: simulator ready"
+
+    def start(self):
+        if self.receiver:
+            self.receiver.start()
+
+    def stop(self):
+        if self.receiver:
+            self.receiver.stop()
+
+    def notify_state_change(self):
+        self.ignore_until = time.monotonic() + max(0.0, float(self.args.ignore_after_state_change_sec or 0.0))
+        if self.smoother:
+            self.smoother.reset()
+
+    def poll(self, choices):
+        if self.mode == "off":
+            return None
+        if time.monotonic() < self.ignore_until:
+            return None
+        if not choices:
+            self.last_status = "auto SSVEP: no available choices"
+            return None
+        if self.mode == "sim":
+            return self._poll_sim(choices)
+        return self._poll_udp(choices)
+
+    def _poll_sim(self, choices):
+        now = time.monotonic()
+        interval = max(0.1, float(self.args.sim_target_interval_sec or 3.0))
+        if now - self.last_sim_at < interval:
+            return None
+        self.last_sim_at = now
+        target = min(self.next_sim_target, len(choices))
+        self.next_sim_target = 1 if self.next_sim_target >= 3 else self.next_sim_target + 1
+        self.last_status = "auto SSVEP sim target=%d" % target
+        return target
+
+    def _poll_udp(self, choices):
+        packet = self.receiver.get_latest() if self.receiver else None
+        if not packet:
+            if self.receiver and self.receiver.last_error:
+                self.last_status = "auto SSVEP UDP warning: %s" % self.receiver.last_error
+                self.receiver.last_error = ""
+            return None
+
+        freqs = [get_choice_frequency(choices[index], index) for index in range(min(3, len(choices)))]
+        result = self.classifier.predict(packet.eeg, freqs)
+        scores_text = ",".join("%.2g" % score for score in result.scores)
+        self.last_status = (
+            "auto SSVEP packet=%d target=%s conf=%.3f scores=[%s]"
+            % (packet.packet_id, result.target_index or "-", result.confidence, scores_text)
+        )
+        target = self.smoother.update(result) if self.smoother else None
+        if target is None or target > len(choices):
+            return None
+        return target
+
+
+class SelectionPauseGate:
+    def __init__(self, args):
+        self.args = args
+        self.pause_sec = max(0.0, float(getattr(args, "selection_pause_sec", 10.0) or 10.0))
+        self.locked_until = 0.0
+
+    def locked(self):
+        return time.monotonic() < self.locked_until
+
+    def pause(self):
+        if self.pause_sec > 0:
+            self.locked_until = time.monotonic() + self.pause_sec
+
+    def remaining(self):
+        return max(0.0, self.locked_until - time.monotonic())
+
+    def status_text(self):
+        if self.locked():
+            return "selection paused %.1fs for avatar speech" % self.remaining()
+        return ""
+
+
 def shorten_text(text, max_chars=18):
     text = str(text or "").strip()
     if len(text) <= max_chars:
@@ -174,11 +348,30 @@ def shorten_text(text, max_chars=18):
     return text[: max_chars - 1] + "..."
 
 
-def make_layout(width, height, block_size, spacing):
+def actual_target_spacing(width, block_size, spacing):
     usable_width = width - block_size
     max_spacing = max(0, usable_width / 2)
-    actual_spacing = min(spacing, max_spacing)
-    y = -height * 0.05
+    return min(spacing, max_spacing)
+
+
+def target_text_width(width, block_size, spacing):
+    actual_spacing = actual_target_spacing(width, block_size, spacing)
+    by_spacing = actual_spacing - 48 if actual_spacing > 0 else block_size
+    by_window = (width - 48) / 3
+    return int(max(80, min(block_size * 0.95, by_spacing, by_window)))
+
+
+def shorten_choice_text(text, text_width, font_size):
+    chars_per_line = max(4, int(text_width / max(8, font_size * 0.7)))
+    return shorten_text(text, max_chars=max(8, chars_per_line * 2))
+
+
+def make_layout(width, height, block_size, spacing):
+    actual_spacing = actual_target_spacing(width, block_size, spacing)
+    rect_h = block_size * 0.58
+    top_margin = max(12, height * 0.06)
+    bottom_text_space = max(78, block_size * 0.31)
+    y = min(height / 2 - top_margin - rect_h / 2, bottom_text_space)
     return [(-actual_spacing, y), (0, y), (actual_spacing, y)]
 
 
@@ -208,20 +401,20 @@ def make_target(win, index, pos, block_size):
     )
     label = visual.TextStim(
         win,
-        text="等待选项",
-        pos=(pos[0], pos[1] - block_size * 0.02),
-        height=max(26, block_size * 0.11),
+        text="绛夊緟閫夐」",
+        pos=(pos[0], pos[1] - block_size * 0.42),
+        height=max(18, block_size * 0.065),
         color=[1, 1, 1],
         bold=True,
-        wrapWidth=block_size * 0.88,
+        wrapWidth=block_size,
     )
     freq_label = visual.TextStim(
         win,
         text="",
-        pos=(pos[0], pos[1] - block_size * 0.2),
-        height=max(18, block_size * 0.075),
+        pos=(pos[0], pos[1] - block_size * 0.56),
+        height=max(14, block_size * 0.045),
         color=[0.85, 0.96, 1.0],
-        wrapWidth=block_size * 0.8,
+        wrapWidth=block_size,
     )
     return {
         "block": block,
@@ -232,34 +425,22 @@ def make_target(win, index, pos, block_size):
 
 
 def update_target_positions(targets, width, height, block_size, spacing):
+    text_width = target_text_width(width, block_size, spacing)
     for target, pos in zip(targets, make_layout(width, height, block_size, spacing)):
         target["block"].pos = pos
         target["block"].width = block_size
         target["block"].height = block_size * 0.58
         target["number"].pos = (pos[0], pos[1] + block_size * 0.15)
         target["number"].height = max(32, block_size * 0.18)
-        target["label"].pos = (pos[0], pos[1] - block_size * 0.02)
-        target["label"].height = max(26, block_size * 0.11)
-        target["label"].wrapWidth = block_size * 0.88
-        target["freq_label"].pos = (pos[0], pos[1] - block_size * 0.2)
-        target["freq_label"].height = max(18, block_size * 0.075)
+        target["label"].pos = (pos[0], pos[1] - block_size * 0.42)
+        target["label"].height = max(18, block_size * 0.065)
+        target["label"].wrapWidth = text_width
+        target["freq_label"].pos = (pos[0], pos[1] - block_size * 0.56)
+        target["freq_label"].height = max(14, block_size * 0.045)
+        target["freq_label"].wrapWidth = text_width
 
 
-def draw_targets(targets, lut_list, frame_cnt, active_count):
-    for index, target in enumerate(targets):
-        if index >= active_count:
-            target["block"].fillColor = [-0.92, -0.92, -0.92]
-        else:
-            intensity = lut_list[index][frame_cnt % len(lut_list[index])]
-            color = intensity * 2 - 1
-            target["block"].fillColor = [color, color, color]
-        target["block"].draw()
-        target["number"].draw()
-        target["label"].draw()
-        target["freq_label"].draw()
-
-
-def main():
+def parse_args():
     project_root = Path(__file__).resolve().parents[2]
     default_tree_path = project_root / "data" / "choice_trees" / "default_choice_tree.json"
     default_config_path = project_root / "scripts" / "ssvep" / "config.yaml"
@@ -284,14 +465,368 @@ def main():
     add_configurable_argument(parser, "--spacing", config, "spacing", type=int, default=460, help="center-to-center spacing between option blocks")
     parser.add_argument("--no-server-init", action="store_true", default=bool(config.get("no_server_init", False)), help="do not call /choice/init on startup")
     add_configurable_argument(parser, "--lut-len", config, "lut_len", type=int, default=1000, help="SSVEP LUT length")
+    add_configurable_argument(parser, "--poll-interval", config, "poll_interval", type=float, default=0.5, help="seconds between /choice/state sync checks")
+    add_configurable_argument(parser, "--wait-session-timeout", config, "wait_session_timeout", type=float, default=120.0, help="seconds to wait for --sessionid auto")
+    add_configurable_argument(parser, "--wait-session-interval", config, "wait_session_interval", type=float, default=1.0, help="seconds between active session discovery checks")
+    add_configurable_argument(parser, "--eeg-mode", config, "eeg_mode", default="off", choices=sorted(AUTO_MODES), help="auto selection mode: off, sim, or udp")
+    add_configurable_argument(parser, "--sim-target-interval-sec", config, "sim_target_interval_sec", type=float, default=3.0, help="seconds between simulated target outputs")
+    add_configurable_argument(parser, "--eeg-udp-host", config, "eeg_udp_host", default="0.0.0.0", help="EEG UDP bind host")
+    add_configurable_argument(parser, "--eeg-udp-port", config, "eeg_udp_port", type=int, default=5555, help="EEG UDP bind port")
+    add_configurable_argument(parser, "--eeg-channels", config, "eeg_channels", type=int, default=21, help="expected EEG channel count")
+    add_configurable_argument(parser, "--eeg-samples", config, "eeg_samples", type=int, default=750, help="expected EEG sample count per packet")
+    add_configurable_argument(parser, "--eeg-sample-rate", config, "eeg_sample_rate", type=float, default=300.0, help="EEG sample rate")
+    add_configurable_argument(parser, "--decision-windows", config, "decision_windows", type=int, default=3, help="number of recent classifier windows to vote over")
+    add_configurable_argument(parser, "--min-votes", config, "min_votes", type=int, default=2, help="minimum votes required to submit")
+    add_configurable_argument(parser, "--confidence-threshold", config, "confidence_threshold", type=float, default=0.2, help="minimum classifier confidence")
+    add_configurable_argument(parser, "--submit-cooldown-sec", config, "submit_cooldown_sec", type=float, default=2.0, help="seconds between automatic submissions")
+    add_configurable_argument(parser, "--ignore-after-state-change-sec", config, "ignore_after_state_change_sec", type=float, default=0.5, help="seconds to ignore classifier output after choices change")
+    add_configurable_argument(parser, "--selection-pause-sec", config, "selection_pause_sec", type=float, default=10.0, help="seconds to pause SSVEP selection after a successful choice submit")
     args = parser.parse_args(remaining_argv)
+    return parser, args, project_root
+
+
+def draw_targets(targets, lut_list, frame_cnt, active_count):
+    for index, target in enumerate(targets):
+        if index >= active_count:
+            target["block"].fillColor = [-0.92, -0.92, -0.92]
+        else:
+            intensity = lut_list[index][frame_cnt % len(lut_list[index])]
+            color = intensity * 2 - 1
+            target["block"].fillColor = [color, color, color]
+        target["block"].draw()
+        target["number"].draw()
+        target["label"].draw()
+        target["freq_label"].draw()
+
+
+def run_pyglet_main(args):
+    import pyglet
+    from pyglet import shapes
+
+    auto_ssvep = AutoSSVEPController(args)
+    selection_pause = SelectionPauseGate(args)
+    choice_tree = load_choice_tree(args.choice_tree)
+    current_node_id = choice_tree["root_node_id"]
+    choices = get_node_choices(choice_tree, current_node_id)
+    actual_fps = 60.0
+    frame_cnt = 0
+    last_state_signature = choices_signature(current_node_id, choices)
+    last_message = "node: %s | choices: %d" % (current_node_id, len(choices))
+
+    config = pyglet.gl.Config(double_buffer=True)
+    window = pyglet.window.Window(
+        width=args.width,
+        height=args.height,
+        caption="LiveTalking SSVEP Choice Window",
+        fullscreen=bool(args.fullscreen),
+        config=config,
+    )
+
+    colors = [
+        (0, 90, 255),
+        (0, 255, 115),
+        (166, 51, 255),
+    ]
+    batch = pyglet.graphics.Batch()
+    status_label = pyglet.text.Label(
+        "",
+        font_size=12,
+        color=(190, 215, 255, 255),
+        anchor_x="center",
+        anchor_y="center",
+        multiline=True,
+        width=max(200, int(args.width * 0.9)),
+        batch=batch,
+    )
+
+    target_items = []
+    for index in range(3):
+        rect = shapes.Rectangle(0, 0, args.block_size, int(args.block_size * 0.58), color=(20, 20, 20), batch=batch)
+        border = shapes.BorderedRectangle(
+            0,
+            0,
+            args.block_size,
+            int(args.block_size * 0.58),
+            border=6,
+            color=(20, 20, 20),
+            border_color=colors[index],
+            batch=batch,
+        )
+        number = pyglet.text.Label(
+            str(index + 1),
+            font_size=max(20, int(args.block_size * 0.11)),
+            color=(255, 255, 255, 255),
+            anchor_x="center",
+            anchor_y="center",
+            batch=batch,
+        )
+        label = pyglet.text.Label(
+            "绛夊緟閫夐」",
+            font_size=max(16, int(args.block_size * 0.065)),
+            color=(255, 255, 255, 255),
+            anchor_x="center",
+            anchor_y="top",
+            multiline=True,
+            width=args.block_size,
+            batch=batch,
+        )
+        freq_label = pyglet.text.Label(
+            "",
+            font_size=max(12, int(args.block_size * 0.045)),
+            color=(215, 245, 255, 255),
+            anchor_x="center",
+            anchor_y="top",
+            batch=batch,
+        )
+        target_items.append(
+            {
+                "rect": rect,
+                "border": border,
+                "number": number,
+                "label": label,
+                "freq_label": freq_label,
+            }
+        )
+
+    def format_freq(value):
+        return ("%.1fHz" % value).replace(".0Hz", "Hz")
+
+    def build_current_luts():
+        freqs = []
+        phases = []
+        text_width = target_text_width(window.width, args.block_size, args.spacing)
+        label_font_size = max(16, int(args.block_size * 0.065))
+        for index in range(3):
+            choice = choices[index] if index < len(choices) else {}
+            freqs.append(get_choice_frequency(choice, index))
+            phases.append(get_choice_phase(choice, index))
+            target_items[index]["label"].text = shorten_choice_text(
+                choice.get("choice_text") if choice else "绛夊緟閫夐」",
+                text_width,
+                label_font_size,
+            )
+            target_items[index]["freq_label"].text = format_freq(freqs[index])
+        return [build_lut(freq, phase, actual_fps, args.lut_len) for freq, phase in zip(freqs, phases)]
+
+    lut_list = build_current_luts()
+
+    def apply_server_state(payload, status_prefix="server sync"):
+        nonlocal choices, current_node_id, lut_list, last_state_signature, last_message
+        current = payload.get("current") or {}
+        server_choices = (current.get("choices") or [])[:3]
+        server_node_id = current.get("node_id") or current_node_id
+        signature = choices_signature(server_node_id, server_choices)
+        if signature == last_state_signature:
+            return False
+        current_node_id = server_node_id
+        choices = server_choices
+        lut_list = build_current_luts()
+        last_state_signature = signature
+        last_message = "node: %s | choices: %d" % (current_node_id or "root", len(choices))
+        auto_ssvep.notify_state_change()
+        return True
+
+    def refresh_from_server(status_prefix="server sync"):
+        payload = post_json(args.server, "/choice/state", {"sessionid": args.sessionid}, timeout=1.5)
+        if not payload.get("initialized"):
+            return False
+        return apply_server_state(payload, status_prefix=status_prefix)
+
+    def reset_to_root():
+        nonlocal choices, current_node_id, lut_list, last_message
+        current_node_id = choice_tree["root_node_id"]
+        choices = get_node_choices(choice_tree, current_node_id)
+        lut_list = build_current_luts()
+        auto_ssvep.notify_state_change()
+        if args.no_server_init:
+            last_message = "node: %s | choices: %d" % (current_node_id, len(choices))
+            return
+        try:
+            payload = post_json(args.server, "/choice/reset", {"sessionid": args.sessionid}, timeout=3.0)
+            apply_server_state(payload, status_prefix="reset")
+        except Exception as exc:
+            last_message = "reset failed: %s" % exc
+
+    def select_choice(index):
+        nonlocal last_message
+        if selection_pause.locked():
+            last_message = "selection ignored: waiting %.1fs" % selection_pause.remaining()
+            auto_ssvep.notify_state_change()
+            return
+        if index >= len(choices):
+            last_message = "choice %d is not available" % (index + 1)
+            return
+        choice = choices[index]
+        print_choice_log(index, choice, current_node_id, source="submit")
+        if args.no_server_init:
+            current_child = choice.get("child_node_id")
+            if current_child in choice_tree["nodes"]:
+                nonlocal_choices_update(current_child)
+                selection_pause.pause()
+            return
+        try:
+            payload = post_json(
+                args.server,
+                "/choice/select",
+                {
+                    "sessionid": args.sessionid,
+                    "choice_id": choice["choice_id"],
+                    "interrupt": True,
+                },
+                timeout=3.0,
+            )
+            apply_server_state(payload, status_prefix="selected %d" % (index + 1))
+            selection_pause.pause()
+            last_message = "selected %d | node: %s" % (index + 1, current_node_id)
+        except Exception as exc:
+            last_message = "select failed: %s" % exc
+
+    def nonlocal_choices_update(node_id):
+        nonlocal choices, current_node_id, lut_list, last_message, last_state_signature
+        current_node_id = node_id
+        choices = get_node_choices(choice_tree, current_node_id)
+        lut_list = build_current_luts()
+        last_state_signature = choices_signature(current_node_id, choices)
+        auto_ssvep.notify_state_change()
+        last_message = "node: %s | choices: %d" % (current_node_id, len(choices))
+
+    if not args.no_server_init:
+        try:
+            payload = post_json(
+                args.server,
+                "/choice/init",
+                {"sessionid": args.sessionid, "tree_id": choice_tree["tree_id"]},
+                timeout=3.0,
+            )
+            apply_server_state(payload, status_prefix="initialized")
+            last_message = "node: %s | choices: %d" % (current_node_id, len(choices))
+        except Exception as exc:
+            last_message = "server init failed, using local tree: %s" % exc
+
+    def update_layout():
+        width, height = window.get_size()
+        block_size = args.block_size
+        positions = make_layout(width, height, block_size, args.spacing)
+        text_width = target_text_width(width, block_size, args.spacing)
+        status_label.x = width // 2
+        status_label.y = int(height * 0.035)
+        status_label.width = max(200, int(width * 0.9))
+        for item, pos in zip(target_items, positions):
+            center_x = width / 2 + pos[0]
+            center_y = height / 2 + pos[1]
+            rect_w = block_size
+            rect_h = int(block_size * 0.58)
+            left = center_x - rect_w / 2
+            bottom = center_y - rect_h / 2
+            item["rect"].position = (left, bottom)
+            item["rect"].width = rect_w
+            item["rect"].height = rect_h
+            item["border"].position = (left, bottom)
+            item["border"].width = rect_w
+            item["border"].height = rect_h
+            item["number"].x = center_x
+            item["number"].y = center_y + block_size * 0.15
+            item["label"].x = center_x
+            item["label"].y = center_y - block_size * 0.34
+            item["label"].width = text_width
+            item["freq_label"].x = center_x
+            item["freq_label"].y = center_y - block_size * 0.54
+
+    @window.event
+    def on_key_press(symbol, modifiers):
+        nonlocal last_message
+        if symbol in {pyglet.window.key.Q, pyglet.window.key.ESCAPE}:
+            window.close()
+        elif symbol == pyglet.window.key.R:
+            reset_to_root()
+        elif symbol in {pyglet.window.key._1, pyglet.window.key.NUM_1}:
+            select_choice(0)
+        elif symbol in {pyglet.window.key._2, pyglet.window.key.NUM_2}:
+            select_choice(1)
+        elif symbol in {pyglet.window.key._3, pyglet.window.key.NUM_3}:
+            select_choice(2)
+        elif symbol in {pyglet.window.key.PLUS, pyglet.window.key.EQUAL}:
+            args.spacing += 20
+            update_layout()
+        elif symbol == pyglet.window.key.MINUS:
+            args.spacing = max(args.block_size, args.spacing - 20)
+            update_layout()
+        elif symbol == pyglet.window.key.BRACKETRIGHT:
+            args.block_size += 20
+            update_layout()
+        elif symbol == pyglet.window.key.BRACKETLEFT:
+            args.block_size = max(160, args.block_size - 20)
+            update_layout()
+        else:
+            last_message = "Q/Esc exit | R reset | 1/2/3 select"
+
+    @window.event
+    def on_draw():
+        window.clear()
+        update_layout()
+        batch.draw()
+
+    @window.event
+    def on_close():
+        auto_ssvep.stop()
+
+    def tick(dt):
+        nonlocal frame_cnt, last_message
+        if not args.no_server_init and frame_cnt % max(1, int(actual_fps * args.poll_interval)) == 0:
+            try:
+                refresh_from_server(status_prefix="server sync")
+            except Exception as exc:
+                last_message = "state sync failed: %s" % exc
+        for index, item in enumerate(target_items):
+            if index >= len(choices):
+                value = 20
+            else:
+                intensity = lut_list[index][frame_cnt % len(lut_list[index])]
+                value = int(max(0, min(255, round(intensity * 255))))
+            item["rect"].color = (value, value, value)
+            item["border"].color = (value, value, value)
+        gate_status = selection_pause.status_text()
+        if not selection_pause.locked():
+            target_index = auto_ssvep.poll(choices)
+            if target_index is not None:
+                select_choice(target_index - 1)
+            elif args.eeg_mode != "off" and auto_ssvep.last_status:
+                last_message = "%s | %s" % (last_message.split(" | auto SSVEP", 1)[0], auto_ssvep.last_status)
+        if gate_status:
+            last_message = "%s | %s" % (last_message.split(" | selection paused", 1)[0], gate_status)
+        status_label.text = last_message
+        frame_cnt += 1
+
+    print("==== LiveTalking SSVEP pyglet window ====")
+    print("sessionid:", args.sessionid)
+    print("auto SSVEP mode:", args.eeg_mode)
+    print("Q/ESC: exit | R: reset | 1/2/3: select")
+    print("=========================================")
+    update_layout()
+    auto_ssvep.start()
+    pyglet.clock.schedule_interval(tick, 1 / actual_fps)
+    pyglet.app.run()
+
+
+def main():
+    parser, args, _project_root = parse_args()
     configure_display(args.display)
     if not args.no_server_init:
         try:
-            args.sessionid = resolve_sessionid(args.server, args.sessionid)
+            args.sessionid = wait_for_sessionid(
+                args.server,
+                args.sessionid,
+                timeout_seconds=args.wait_session_timeout,
+                poll_interval=args.wait_session_interval,
+            )
         except Exception as exc:
             parser.error(str(exc))
+    if importlib.util.find_spec("psychopy") is None:
+        print("PsychoPy is not installed; using pyglet fallback renderer.", flush=True)
+        return run_pyglet_main(args)
     core, event, visual = setup_psychopy()
+    auto_ssvep = AutoSSVEPController(args)
+    selection_pause = SelectionPauseGate(args)
     choice_tree = load_choice_tree(args.choice_tree)
     current_node_id = choice_tree["root_node_id"]
 
@@ -310,18 +845,10 @@ def main():
         for index, pos in enumerate(make_layout(current_width, current_height, args.block_size, args.spacing))
     ]
 
-    title_text = visual.TextStim(
-        win,
-        text="LiveTalking SSVEP 选项窗口",
-        pos=(0, current_height * 0.4),
-        height=30,
-        color=[1, 1, 1],
-        bold=True,
-    )
     status_text = visual.TextStim(
         win,
-        text="Q/ESC退出 | R刷新 | 1/2/3模拟选择",
-        pos=(0, -current_height * 0.42),
+        text="Q/ESC閫€鍑?| R鍒锋柊 | 1/2/3妯℃嫙閫夋嫨",
+        pos=(0, -current_height * 0.48),
         height=22,
         color=[0.75, 0.85, 1.0],
         wrapWidth=current_width * 0.9,
@@ -330,57 +857,103 @@ def main():
     frame_cnt = 0
     choices = get_node_choices(choice_tree, current_node_id)
     lut_list = [build_lut(freq, phase, actual_fps, args.lut_len) for freq, phase in zip(DEFAULT_FREQS, DEFAULT_PHASES)]
-    last_message = "已加载固定选项树: %s" % choice_tree["tree_id"]
+    last_message = "鑺傜偣:%s 閫夐」:%d" % (current_node_id, len(choices))
+    last_state_signature = choices_signature(current_node_id, choices)
+    next_poll_at = 0.0
 
-    print("==== LiveTalking SSVEP 选项窗口 ====")
-    print("Q/ESC：退出")
-    print("R：重置到根节点")
-    print("1/2/3：模拟 SSVEP 识别并提交选择")
-    print("+/-：调整窗口内目标间距")
-    print("[/]：调整目标块大小")
+    print("==== LiveTalking SSVEP choice window ====")
+    print("auto SSVEP mode:", args.eeg_mode)
+    print("Q/ESC: exit")
+    print("R: reset to root")
+    print("1/2/3: submit manual choice")
+    print("+/-: adjust target spacing")
+    print("[/]: adjust target block size")
     print("====================================")
 
-    def render_local_choices():
-        nonlocal lut_list, last_message
+    def render_current_choices(status_prefix=None):
+        nonlocal lut_list, last_message, last_state_signature
         freqs = []
         phases = []
+        text_width = target_text_width(current_width, args.block_size, args.spacing)
+        label_font_size = max(18, args.block_size * 0.065)
         for index in range(3):
             choice = choices[index] if index < len(choices) else {}
             freqs.append(get_choice_frequency(choice, index))
             phases.append(get_choice_phase(choice, index))
-            targets[index]["label"].text = shorten_text(choice.get("choice_text") if choice else "等待选项")
+            targets[index]["label"].text = shorten_choice_text(
+                choice.get("choice_text") if choice else "绛夊緟閫夐」",
+                text_width,
+                label_font_size,
+            )
             targets[index]["freq_label"].text = ("%.1fHz" % freqs[index]).replace(".0Hz", "Hz")
         lut_list = [build_lut(freq, phase, actual_fps, args.lut_len) for freq, phase in zip(freqs, phases)]
-        last_message = "节点: %s | 选项数: %d | FPS: %.1f" % (current_node_id or "root", len(choices), actual_fps)
+        last_state_signature = choices_signature(current_node_id, choices)
+        auto_ssvep.notify_state_change()
+        last_message = "鑺傜偣:%s 閫夐」:%d" % (current_node_id or "root", len(choices))
+
+    def apply_server_state(payload, status_prefix="鍚庣鍚屾"):
+        nonlocal choices, current_node_id
+        current = payload.get("current") or {}
+        server_choices = (current.get("choices") or [])[:3]
+        server_node_id = current.get("node_id") or current_node_id
+        signature = choices_signature(server_node_id, server_choices)
+        if signature == last_state_signature:
+            return False
+        current_node_id = server_node_id
+        choices = server_choices
+        render_current_choices(status_prefix=status_prefix)
+        return True
+
+    def refresh_from_server(status_prefix="鍚庣鍚屾"):
+        payload = post_json(
+            args.server,
+            "/choice/state",
+            {"sessionid": args.sessionid},
+            timeout=1.5,
+        )
+        if not payload.get("initialized"):
+            return False
+        return apply_server_state(payload, status_prefix=status_prefix)
 
     def reset_to_root(sync_server=True):
         nonlocal choices, current_node_id, last_message
         current_node_id = choice_tree["root_node_id"]
         choices = get_node_choices(choice_tree, current_node_id)
-        render_local_choices()
-        if sync_server:
+        render_current_choices(status_prefix="local reset")
+        if sync_server and not args.no_server_init:
             try:
-                post_json(
+                payload = post_json(
                     args.server,
                     "/choice/reset",
                     {"sessionid": args.sessionid},
                     timeout=3.0,
                 )
-                last_message = "已重置到根节点并同步后端"
+                apply_server_state(payload, status_prefix="reset")
+                last_message = "鑺傜偣:%s 閫夐」:%d" % (current_node_id, len(choices))
             except Exception as exc:
-                last_message = "已本地重置，后端同步失败: %s" % exc
+                last_message = "reset failed: %s" % exc
 
     def select_choice(index):
         nonlocal choices, current_node_id, last_message
+        if selection_pause.locked():
+            last_message = "selection ignored: waiting %.1fs" % selection_pause.remaining()
+            auto_ssvep.notify_state_change()
+            return
         if index >= len(choices):
-            last_message = "选项 %d 不存在" % (index + 1)
+            last_message = "choice %d is not available" % (index + 1)
             return
         choice = choices[index]
-        child_node_id = choice.get("child_node_id")
-        if child_node_id not in choice_tree["nodes"]:
-            last_message = "子节点不存在: %s" % child_node_id
+        print_choice_log(index, choice, current_node_id, source="submit")
+        if args.no_server_init:
+            current_child = choice.get("child_node_id")
+            if current_child in choice_tree["nodes"]:
+                current_node_id = current_child
+                choices = get_node_choices(choice_tree, current_node_id)
+                render_current_choices(status_prefix="local selected")
+                selection_pause.pause()
+                last_message = "selected:%d node:%s" % (index + 1, current_node_id)
             return
-        post_json(
+        payload = post_json(
             args.server,
             "/choice/select",
             {
@@ -390,65 +963,82 @@ def main():
             },
             timeout=3.0,
         )
-        current_node_id = child_node_id
-        choices = get_node_choices(choice_tree, current_node_id)
-        render_local_choices()
-        last_message = "已提交选择 %d: %s | 下一个节点: %s" % (
-            index + 1,
-            choice.get("choice_text", ""),
-            current_node_id,
-        )
+        apply_server_state(payload, status_prefix="selected")
+        selection_pause.pause()
+        last_message = "selected:%d node:%s" % (index + 1, current_node_id)
 
     if not args.no_server_init:
         try:
-            post_json(
+            payload = post_json(
                 args.server,
                 "/choice/init",
                 {"sessionid": args.sessionid, "tree_id": choice_tree["tree_id"]},
                 timeout=3.0,
             )
-            last_message = "已初始化后端选项树: %s" % choice_tree["tree_id"]
+            apply_server_state(payload, status_prefix="initialized")
+            last_message = "鑺傜偣:%s 閫夐」:%d" % (current_node_id, len(choices))
         except Exception as exc:
-            last_message = "本地选项已加载，后端初始化失败: %s" % exc
-    render_local_choices()
+            last_message = "server init failed, using local tree: %s" % exc
+    render_current_choices(status_prefix="current")
+    auto_ssvep.start()
 
-    while True:
-        keys = event.getKeys()
-        if "q" in keys or "escape" in keys:
-            win.close()
-            core.quit()
-        if "r" in keys:
-            reset_to_root(sync_server=True)
-            frame_cnt = 0
-        for key, index in (("1", 0), ("num_1", 0), ("2", 1), ("num_2", 1), ("3", 2), ("num_3", 2)):
-            if key in keys:
+    try:
+        while True:
+            now = time.monotonic()
+            if not args.no_server_init and now >= next_poll_at:
+                next_poll_at = now + max(0.1, float(args.poll_interval or 0.5))
                 try:
-                    select_choice(index)
+                    refresh_from_server(status_prefix="server sync")
                 except Exception as exc:
-                    last_message = "选择提交失败: %s" % exc
-        if "equal" in keys or "plus" in keys:
-            args.spacing += 20
-        if "minus" in keys:
-            args.spacing = max(args.block_size, args.spacing - 20)
-        if "bracketright" in keys:
-            args.block_size += 20
-        if "bracketleft" in keys:
-            args.block_size = max(160, args.block_size - 20)
-
-        width, height = win.size
-        if width != current_width or height != current_height:
-            current_width, current_height = width, height
-            title_text.pos = (0, current_height * 0.4)
-            status_text.pos = (0, -current_height * 0.42)
-            status_text.wrapWidth = current_width * 0.9
-
-        update_target_positions(targets, current_width, current_height, args.block_size, args.spacing)
-        title_text.draw()
-        draw_targets(targets, lut_list, frame_cnt, len(choices))
-        status_text.text = last_message + " | Q/ESC退出 | R重置 | 1/2/3选择 | +/-间距 | [/]大小"
-        status_text.draw()
-        win.flip()
-        frame_cnt += 1
+                    last_message = "state sync failed: %s" % exc
+            keys = event.getKeys()
+            if "q" in keys or "escape" in keys:
+                win.close()
+                core.quit()
+            if "r" in keys:
+                reset_to_root(sync_server=True)
+                frame_cnt = 0
+            for key, index in (("1", 0), ("num_1", 0), ("2", 1), ("num_2", 1), ("3", 2), ("num_3", 2)):
+                if key in keys:
+                    try:
+                        select_choice(index)
+                    except Exception as exc:
+                        last_message = "select failed: %s" % exc
+            gate_status = selection_pause.status_text()
+            if not selection_pause.locked():
+                auto_target_index = auto_ssvep.poll(choices)
+                if auto_target_index is not None:
+                    try:
+                        select_choice(auto_target_index - 1)
+                    except Exception as exc:
+                        last_message = "auto SSVEP select failed: %s" % exc
+                elif args.eeg_mode != "off" and auto_ssvep.last_status:
+                    last_message = "%s | %s" % (last_message.split(" | auto SSVEP", 1)[0], auto_ssvep.last_status)
+            if gate_status:
+                last_message = "%s | %s" % (last_message.split(" | selection paused", 1)[0], gate_status)
+            if "equal" in keys or "plus" in keys:
+                args.spacing += 20
+            if "minus" in keys:
+                args.spacing = max(args.block_size, args.spacing - 20)
+            if "bracketright" in keys:
+                args.block_size += 20
+            if "bracketleft" in keys:
+                args.block_size = max(160, args.block_size - 20)
+    
+            width, height = win.size
+            if width != current_width or height != current_height:
+                current_width, current_height = width, height
+                status_text.pos = (0, -current_height * 0.48)
+                status_text.wrapWidth = current_width * 0.9
+    
+            update_target_positions(targets, current_width, current_height, args.block_size, args.spacing)
+            draw_targets(targets, lut_list, frame_cnt, len(choices))
+            status_text.text = last_message
+            status_text.draw()
+            win.flip()
+            frame_cnt += 1
+    finally:
+        auto_ssvep.stop()
 
 
 if __name__ == "__main__":

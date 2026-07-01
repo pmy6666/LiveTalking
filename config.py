@@ -37,7 +37,7 @@ def parse_args():
 
     # ─── 数字人模型 ────────────────────────────────────────────────────
     parser.add_argument('--model', type=str, default='wav2lip',
-                        help="avatar model: musetalk/wav2lip/ultralight/echomimicv3")
+                        help="avatar model: musetalk/wav2lip/ultralight/echomimicv3/cached_media")
     parser.add_argument('--avatar_id', type=str, default='wav2lip256_avatar1',
                         help="avatar id in data/avatars")
     parser.add_argument('--batch_size', type=int, default=16, help="infer batch")
@@ -92,7 +92,7 @@ def parse_args():
 
     # ─── TTS ───────────────────────────────────────────────────────────
     parser.add_argument('--tts', type=str, default='edgetts',
-                        help="tts plugin: edgetts/gpt-sovits/cosyvoice/fishtts/tencent/doubao/indextts2/azuretts/qwentts")
+                        help="tts plugin: none/edgetts/gpt-sovits/cosyvoice/fishtts/tencent/doubao/indextts2/azuretts/qwentts")
     parser.add_argument('--REF_FILE', type=str, default="zh-CN-YunxiaNeural",
                         help="参考文件名或语音模型ID")
     parser.add_argument('--REF_TEXT', type=str, default=None)
@@ -175,10 +175,22 @@ def apply_choice_config(opt, config_file: str):
     choice = config.get("choice", {}) or {}
     opt.choice_tree_id = choice.get("tree_id", "default_choice_tree")
     opt.choice_video_cache_mode = choice.get("video_cache_mode", "two_stage")
+    opt.choice_cache_local_only = opt.choice_video_cache_mode == "local_cache_only"
 
     runtime = config.get("runtime", {}) or {}
     for key, value in runtime.items():
         setattr(opt, key, value)
+
+    cache_demo = config.get("cache_demo", {}) or {}
+    opt.cache_demo = cache_demo
+    opt.cache_demo_enabled = bool(cache_demo.get("enabled", False))
+    if opt.cache_demo_enabled:
+        opt.cache_demo_mode = cache_demo.get("mode", "local_only")
+        opt.cache_demo_primary_cache = cache_demo.get("primary_cache", "choice_echomimicv3")
+        opt.cache_demo_fallback_video_cache = cache_demo.get("fallback_video_cache", "choice_two_stage")
+        opt.cache_demo_fallback_audio_cache = cache_demo.get("fallback_audio_cache", "choice_audio_wav")
+        opt.cache_demo_voice = cache_demo.get("voice", "female")
+        opt.choice_cache_local_only = True
 
     tts = config.get("tts", {}) or {}
     tts_map = {

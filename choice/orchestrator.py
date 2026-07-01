@@ -249,16 +249,21 @@ class ChoiceOrchestrator:
         return state
 
     @staticmethod
-    def _build_choices(node: dict[str, Any]) -> list[dict[str, str]]:
+    def _build_choices(node: dict[str, Any]) -> list[dict[str, Any]]:
         choices = []
         for item in node.get("choices", []):
-            choices.append(
-                {
-                    "choice_id": item["choice_id"],
-                    "choice_text": item["choice_text"],
-                    "child_node_id": item["child_node_id"],
-                }
-            )
+            choice = {
+                "choice_id": item["choice_id"],
+                "choice_text": item["choice_text"],
+                "child_node_id": item["child_node_id"],
+            }
+            if isinstance(item.get("ssvep"), dict):
+                choice["ssvep"] = item["ssvep"]
+            if "ssvep_frequency" in item:
+                choice["ssvep_frequency"] = item["ssvep_frequency"]
+            if "ssvep_phase" in item:
+                choice["ssvep_phase"] = item["ssvep_phase"]
+            choices.append(choice)
         return choices
 
     def _tts_options(self, avatar_session) -> dict[str, Any]:
@@ -324,7 +329,7 @@ class ChoiceOrchestrator:
         state["current_node_id"] = root["node_id"]
         state["path"] = [root["node_id"]]
         state["last_choices"] = [choice["choice_id"] for choice in root.get("choices", [])]
-        if self.enable_prefetch:
+        if self.enable_prefetch and not self._local_cache_only(avatar_session):
             self.prefetch_children(avatar_session, root)
         return {
             "mode": "choice",
@@ -376,7 +381,7 @@ class ChoiceOrchestrator:
             avatar_session.flush_talk()
 
         playback_result = self._play_or_enqueue(avatar_session, next_node)
-        if self.enable_prefetch:
+        if self.enable_prefetch and not self._local_cache_only(avatar_session):
             self.prefetch_children(avatar_session, next_node)
 
         return {
@@ -386,7 +391,16 @@ class ChoiceOrchestrator:
             "audio_cache_hit": playback_result["audio_cache_hit"],
             "video_cache_hit": playback_result["video_cache_hit"],
             "cache_mode": playback_result["cache_mode"],
+            "model_used": playback_result.get("model_used", False),
+            "message": playback_result.get("message", ""),
         }
+
+    def _local_cache_only(self, avatar_session) -> bool:
+        return (
+            getattr(avatar_session.opt, "choice_video_cache_mode", "") == "local_cache_only"
+            or bool(getattr(avatar_session.opt, "cache_demo_enabled", False))
+            or getattr(avatar_session.opt, "model", "") == "cached_media"
+        )
 
     def _play_or_enqueue(self, avatar_session, node: dict[str, Any]) -> dict[str, Any]:
         tts_options = self._tts_options(avatar_session)
@@ -398,6 +412,25 @@ class ChoiceOrchestrator:
             "text": tts_text,
         }
         playback_token = avatar_session.current_playback_token()
+
+        if self._local_cache_only(avatar_session):
+            video_result = self._play_local_video_cache_if_ready(
+                avatar_session,
+                node,
+                datainfo,
+                playback_token,
+            )
+            if video_result is not None:
+                return video_result
+            message = f"cache missing for node_id={node['node_id']}"
+            logger.info("choice local cache only miss: %s", message)
+            return {
+                "audio_cache_hit": False,
+                "video_cache_hit": False,
+                "cache_mode": "local_cache_only_miss",
+                "model_used": False,
+                "message": message,
+            }
 
         if getattr(avatar_session.opt, "model", "") == "echomimicv3":
             video_result = self._play_echomimicv3_cache_if_ready(
@@ -421,6 +454,7 @@ class ChoiceOrchestrator:
                 "audio_cache_hit": True,
                 "video_cache_hit": False,
                 "cache_mode": "audio_cache",
+                "model_used": False,
             }
 
         self.playback_executor.submit(
@@ -437,6 +471,67 @@ class ChoiceOrchestrator:
             "audio_cache_hit": False,
             "video_cache_hit": False,
             "cache_mode": "realtime_fallback",
+            "model_used": True,
+        }
+
+    def _play_local_video_cache_if_ready(
+        self,
+        avatar_session,
+        node: dict[str, Any],
+        datainfo: dict[str, Any],
+        playback_token: int,
+    ) -> Optional[dict[str, Any]]:
+        if not hasattr(avatar_session, "play_cached_video_segment"):
+            return None
+
+        tree_id = self._ensure_state(avatar_session).get("tree_id")
+        if not tree_id:
+            return None
+
+        runtime_avatar_id = getattr(avatar_session.opt, "avatar_id", "")
+        candidate_metas = self.echomimicv3_cache.get_candidate_metas_by_node(tree_id, node["node_id"])
+        matched_meta = None
+        for meta in candidate_metas:
+            if meta.get("avatar_id") == runtime_avatar_id:
+                matched_meta = meta
+                break
+
+        if matched_meta is None:
+            if candidate_metas:
+                logger.info(
+                    "choice local video cache avatar mismatch: %s/%s runtime_avatar=%s candidates=%s",
+                    tree_id,
+                    node["node_id"],
+                    runtime_avatar_id,
+                    [meta.get("avatar_id", "") for meta in candidate_metas],
+                )
+            return None
+
+        cached_segment = self.echomimicv3_cache.get(tree_id, matched_meta.get("cache_key", ""))
+        if cached_segment is None:
+            return None
+
+        datainfo = dict(datainfo)
+        datainfo["choice_video_cache"] = {
+            "tree_id": tree_id,
+            "node_id": node["node_id"],
+            "cache_key": cached_segment["meta"].get("cache_key", ""),
+            "avatar_id": cached_segment["meta"].get("avatar_id", ""),
+            "mode": "local_cache_only",
+        }
+        self.playback_executor.submit(
+            avatar_session.play_cached_video_segment,
+            cached_segment["frames"],
+            cached_segment["audio"],
+            datainfo,
+            playback_token,
+        )
+        logger.info("choice local video cache hit: %s/%s", tree_id, node["node_id"])
+        return {
+            "audio_cache_hit": True,
+            "video_cache_hit": True,
+            "cache_mode": "local_cache_only",
+            "model_used": False,
         }
 
     def _play_echomimicv3_cache_if_ready(
@@ -501,6 +596,7 @@ class ChoiceOrchestrator:
             "audio_cache_hit": True,
             "video_cache_hit": True,
             "cache_mode": "echomimicv3_precomputed",
+            "model_used": False,
         }
 
     def _synthesize_and_play_node_audio(

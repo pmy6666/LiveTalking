@@ -130,8 +130,11 @@ def main():
         'wav2lip':    'avatars.wav2lip_avatar',
         'ultralight': 'avatars.ultralight_avatar',
         'echomimicv3': 'avatars.echomimicv3_avatar',
+        'cached_media': 'avatars.cached_media_avatar',
     }
     import importlib
+    if opt.model not in _avatar_modules:
+        raise ValueError(f"unsupported avatar model: {opt.model}")
     avatar_mod = importlib.import_module(_avatar_modules[opt.model])
     load_model = avatar_mod.load_model
     load_avatar = avatar_mod.load_avatar
@@ -152,6 +155,10 @@ def main():
         warm_up(opt.batch_size,global_avatars[opt.avatar_id],160)
     elif opt.model == 'echomimicv3':
         model = load_model(opt)
+        global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
+        warm_up(opt, model, global_avatars[opt.avatar_id])
+    elif opt.model == 'cached_media':
+        model = None
         global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
         warm_up(opt, model, global_avatars[opt.avatar_id])
 

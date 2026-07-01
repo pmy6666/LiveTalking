@@ -1,0 +1,127 @@
+LiveTalking + SSVEP 最简运行链路
+
+工作目录：
+cd C:\Users\1234\Desktop\PMY\LiveTalking
+
+Python 环境：
+F:\miniforge3\envs\LiveTalking\python.exe
+
+
+1. 运行 LiveTalking demo 后端
+
+cd C:\Users\1234\Desktop\PMY\LiveTalking
+F:\miniforge3\envs\LiveTalking\python.exe app.py --choice_config configs/cache_demo.yaml
+
+启动后打开网页，建立 LiveTalking 连接。SSVEP 窗口默认会通过 /api/sessions 自动获取当前 sessionid。
+
+
+2. 运行 SSVEP 选择窗口：手动模式
+
+用于先验证选项窗口和 /choice/select 链路。按 1/2/3 选择当前网页里的第 1/2/3 个选项。
+
+cd C:\Users\1234\Desktop\PMY\LiveTalking
+F:\miniforge3\envs\LiveTalking\python.exe scripts\ssvep\choice_ssvep_window.py --eeg-mode off
+
+
+3. 运行 SSVEP 选择窗口：模拟自动选择
+
+用于验证“自动识别结果 -> 提交选择 -> 网页更新”的闭环，不需要真实 EEG。
+
+cd C:\Users\1234\Desktop\PMY\LiveTalking
+F:\miniforge3\envs\LiveTalking\python.exe scripts\ssvep\choice_ssvep_window.py --eeg-mode sim
+
+
+4. 运行 SSVEP 选择窗口：真实 EEG UDP 模式
+
+用于接收 MATLAB 发来的 EEG UDP 包并自动分类选择。
+成功提交一次选项后，SSVEP 选择暂停 10 秒；暂停期间闪烁 UI 继续正常显示，但不会继续提交 1/2/3 或自动识别结果。
+
+cd C:\Users\1234\Desktop\PMY\LiveTalking
+F:\miniforge3\envs\LiveTalking\python.exe scripts\ssvep\choice_ssvep_window.py --eeg-mode udp
+
+默认监听：
+host = 0.0.0.0
+port = 5555
+channels = 21
+samples = 750
+sample_rate = 300
+
+
+5. 不戴脑电帽：模拟 MATLAB EEG UDP 发送端
+
+这个脚本完全模拟 zzzz_test_move_eeg_broadcast.m 发出的 UDP 包协议：
+- 默认目标 IP = 127.0.0.1
+- 默认端口 = 5555
+- 采样率 = 300
+- 窗口长度 = 2.5 秒
+- 样本点数 = 750
+- 通道数 = 21
+- 发送间隔 = 0.5 秒
+- 包头 = 8 字节
+- payload = float32，按 MATLAB data_single(:) 的列优先顺序打包
+
+发送模拟 target 1：
+
+cd C:\Users\1234\Desktop\PMY\LiveTalking
+F:\miniforge3\envs\LiveTalking\python.exe scripts\ssvep\matlab_eeg_udp_simulator.py --target 1
+
+发送模拟 target 2：
+
+cd C:\Users\1234\Desktop\PMY\LiveTalking
+F:\miniforge3\envs\LiveTalking\python.exe scripts\ssvep\matlab_eeg_udp_simulator.py --target 2
+
+发送模拟 target 3：
+
+cd C:\Users\1234\Desktop\PMY\LiveTalking
+F:\miniforge3\envs\LiveTalking\python.exe scripts\ssvep\matlab_eeg_udp_simulator.py --target 3
+
+循环模拟 target 1/2/3：
+
+cd C:\Users\1234\Desktop\PMY\LiveTalking
+F:\miniforge3\envs\LiveTalking\python.exe scripts\ssvep\matlab_eeg_udp_simulator.py --cycle-targets
+
+注意：要先运行 choice_ssvep_window.py --eeg-mode udp 或 eeg_udp_receiver.py，再运行这个模拟发送脚本。
+
+
+6. MATLAB EEG 发送端
+
+先打开 DSI-Streamer：
+- 勾选 Activate TCP/IP Socket
+- 确认 Server Output 端口
+- 如果截图中 Server Output 是 8944，则 DSI_init.m 里应为：
+  serverPort = 8944;
+- 如果 MATLAB 和 DSI-Streamer 在同一台电脑：
+  ipAddress = '127.0.0.1';
+
+然后在 MATLAB 中运行：
+SSVEP-BCI-OpenBCI-main\matlab_stimulator\A_demo_ssvep\loop_1\zzzz_test_move_eeg_broadcast.m
+
+MATLAB 和 Python SSVEP 窗口在同一台电脑时：
+BROADCAST_IP = '127.0.0.1';
+BROADCAST_PORT = 5555;
+
+
+7. 可选：单独检查 UDP 是否收到 EEG
+
+cd C:\Users\1234\Desktop\PMY\LiveTalking
+F:\miniforge3\envs\LiveTalking\python.exe scripts\ssvep\eeg_udp_receiver.py --host 0.0.0.0 --port 5555
+
+正常时应持续看到 packet_id、channels=21、samples=750、mean/std/min/max 等信息。
+
+
+推荐调试顺序：
+1. 先启动 LiveTalking demo 后端。
+2. 打开网页并建立连接。
+3. 运行 SSVEP 手动模式，确认 1/2/3 能让网页选项变化。
+4. 运行 SSVEP 模拟模式，确认自动选择闭环正常。
+5. 运行 SSVEP UDP 模式。
+6. 运行 matlab_eeg_udp_simulator.py，确认不用脑电帽也能收到模拟 MATLAB UDP 包。
+7. 最后再打开 DSI-Streamer 和 MATLAB EEG 发送端接真实 EEG。
+
+
+
+脑电帽运行：
+SSVEP-BCI-OpenBCI-main\DSI-Streamer-v.1.08.104\DSI-Streamer-v.1.08.104.exe
+
+Matlab数据处理运行：
+SSVEP-BCI-OpenBCI-main\matlab_stimulator\A_demo_ssvep\loop_1\zzzz_test_move_eeg_broadcast.m

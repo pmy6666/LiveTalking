@@ -1,0 +1,20 @@
+choice:
+  tree_id: default_choice_tree
+  video_cache_mode: local_cache_only
+
+runtime:
+  model: cached_media
+  avatar_id: avatar7
+  transport: webrtc
+  max_session: 1
+  listenport: 8010
+  tts: none
+  batch_size: 16
+
+cache_demo:
+  enabled: true
+  mode: local_only
+  primary_cache: choice_echomimicv3
+  fallback_video_cache: choice_two_stage
+  fallback_audio_cache: choice_audio_wav
+  voice: female

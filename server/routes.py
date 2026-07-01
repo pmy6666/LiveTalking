@@ -307,10 +307,10 @@ async def choice_init(request):
     try:
         params = await request.json()
         sessionid = params.get("sessionid", "")
-        tree_id = params.get("tree_id") or getattr(avatar_session.opt, "choice_tree_id", "default_choice_tree")
         avatar_session = get_session(request, sessionid)
         if avatar_session is None:
             return json_error("session not found")
+        tree_id = params.get("tree_id") or getattr(avatar_session.opt, "choice_tree_id", "default_choice_tree")
         orchestrator = request.app.get("choice_orchestrator")
         if orchestrator is None:
             return json_error("choice orchestrator not configured")

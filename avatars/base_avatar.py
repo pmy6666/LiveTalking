@@ -101,7 +101,9 @@ class BaseAvatar:
             'qwentts': 'tts.qwentts'
         }
 
-        if opt.tts in _tts_modules:
+        if opt.tts in ("", "none", None):
+            logger.info("TTS disabled for this avatar session.")
+        elif opt.tts in _tts_modules:
             importlib.import_module(_tts_modules[opt.tts])
             self.tts = registry.create("tts", opt.tts, opt=opt, parent=self)
         else:

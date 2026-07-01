@@ -10,6 +10,7 @@ matplotlib
 PyMCubes
 rich
 dearpygui
+pyglet==2.1.15  # SSVEP independent choice window fallback renderer
 packaging
 scipy
 scikit-learn
@@ -50,14 +51,14 @@ websockets==12.0
 typeguard==2.13.3
 onnxruntime-gpu
 
-# EchoMimicV3 Flash backend
-safetensors
-pyloudnorm
-decord
-timm
-tomesd
-torchdiffeq
-torchsde
-ftfy
-func_timeout
-moviepy==2.2.1
+# # EchoMimicV3 Flash backend
+# safetensors
+# pyloudnorm
+# decord
+# timm
+# tomesd
+# torchdiffeq
+# torchsde
+# ftfy
+# func_timeout
+# moviepy==2.2.1
